@@ -1,0 +1,131 @@
+import { MoodMeta, MoodType, StreakMilestone } from "../types";
+
+export const MOODS: Record<MoodType, MoodMeta> = {
+  radiant: {
+    type: "radiant",
+    label: "Radiant",
+    emoji: "✨",
+    color: "#f59e0b",
+    bgClass: "bg-amber-50 text-amber-900 border-amber-300",
+    borderClass: "border-amber-400",
+    score: 5,
+  },
+  joyful: {
+    type: "joyful",
+    label: "Joyful",
+    emoji: "😊",
+    color: "#10b981",
+    bgClass: "bg-emerald-50 text-emerald-900 border-emerald-300",
+    borderClass: "border-emerald-400",
+    score: 4.5,
+  },
+  calm: {
+    type: "calm",
+    label: "Calm & Centered",
+    emoji: "🌿",
+    color: "#06b6d4",
+    bgClass: "bg-cyan-50 text-cyan-900 border-cyan-300",
+    borderClass: "border-cyan-400",
+    score: 4,
+  },
+  reflective: {
+    type: "reflective",
+    label: "Reflective",
+    emoji: "💭",
+    color: "#6366f1",
+    bgClass: "bg-indigo-50 text-indigo-900 border-indigo-300",
+    borderClass: "border-indigo-400",
+    score: 3.5,
+  },
+  anxious: {
+    type: "anxious",
+    label: "Anxious / Overwhelmed",
+    emoji: "🌪️",
+    color: "#f97316",
+    bgClass: "bg-orange-50 text-orange-900 border-orange-300",
+    borderClass: "border-orange-400",
+    score: 2,
+  },
+  down: {
+    type: "down",
+    label: "Low / Heavy",
+    emoji: "🌧️",
+    color: "#64748b",
+    bgClass: "bg-slate-100 text-slate-800 border-slate-300",
+    borderClass: "border-slate-400",
+    score: 2,
+  },
+  frustrated: {
+    type: "frustrated",
+    label: "Frustrated",
+    emoji: "🔥",
+    color: "#ef4444",
+    bgClass: "bg-rose-50 text-rose-900 border-rose-300",
+    borderClass: "border-rose-400",
+    score: 1.5,
+  },
+};
+
+export const POPULAR_TAGS = [
+  "Gratitude",
+  "Work & Career",
+  "Personal Growth",
+  "Relationships",
+  "Mental Wellness",
+  "Creative Ideas",
+  "Daily Habits",
+  "Life Decisions",
+  "Self-Compassion",
+];
+
+export const STREAK_MILESTONES: StreakMilestone[] = [
+  {
+    days: 1,
+    title: "First Step",
+    description: "Penned your very first reflection and began your mindfulness journey.",
+    icon: "🌱",
+    badgeColor: "from-amber-400 to-amber-600",
+    unlocked: false,
+  },
+  {
+    days: 3,
+    title: "Momentum Maker",
+    description: "3 consecutive days of checking in with your authentic thoughts.",
+    icon: "🔥",
+    badgeColor: "from-orange-400 to-rose-500",
+    unlocked: false,
+  },
+  {
+    days: 7,
+    title: "Week of Clarity",
+    description: "One complete week of mindful introspection and emotional awareness.",
+    icon: "⭐",
+    badgeColor: "from-indigo-400 to-purple-600",
+    unlocked: false,
+  },
+  {
+    days: 14,
+    title: "Fortnight of Focus",
+    description: "14 days of cultivating self-reflection and mental resilience.",
+    icon: "💎",
+    badgeColor: "from-cyan-400 to-blue-600",
+    unlocked: false,
+  },
+  {
+    days: 30,
+    title: "Master of Reflection",
+    description: "30-day journaling streak! You have transformed daily reflection into an enduring anchor.",
+    icon: "👑",
+    badgeColor: "from-emerald-400 to-teal-600",
+    unlocked: false,
+  },
+];
+
+export const JOURNALING_PROMPTS = [
+  "What is something small that made you smile today?",
+  "What is one challenge on your mind right now, and what is one small thing within your control?",
+  "Describe a moment recently where you felt fully present and at peace.",
+  "What boundary or kind act did you practice for yourself this week?",
+  "If you could talk to yourself 1 year from now, what advice would you seek?",
+  "What are you most grateful for right in this exact moment?",
+];
