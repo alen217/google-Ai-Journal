@@ -72,3 +72,20 @@ export interface StreakMilestone {
 }
 
 export type AppView = "dashboard" | "new_journal" | "history" | "analytics";
+
+export type TextRefineMode = "auto_correct" | "fix_grammar_spelling" | "polish_flow" | "punctuate_speech";
+
+export interface RefineCorrection {
+  original: string;
+  corrected: string;
+  explanation: string;
+}
+
+export interface RefineResult {
+  refinedText: string;
+  corrections: RefineCorrection[];
+  changeSummary: string;
+  originalText: string;
+  modelUsed?: string;
+}
+

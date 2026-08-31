@@ -121,3 +121,12 @@ The following step-by-step test cases verify every feature of ReflectAI:
 ### Test Case 6: History Archive, Search, & Markdown Export
 1. **Action**: Navigate to **Past Entries**. Filter by mood, type search keywords, or click **Export Journal (.md)**.
 2. **Expected Result**: Matching reflections are filtered dynamically. Clicking export downloads a clean Markdown file with all saved reflections and conversation history.
+
+### Test Case 7: Speech-to-Text Voice Dictation
+1. **Action**: Open the reflection editor and click **Dictate with Voice** (or **Voice Dictate** on Dashboard). Speak your reflection into your microphone.
+2. **Expected Result**: Browser prompts for microphone access (if not already granted). The live audio visualizer pulses and your spoken words are transcribed in real-time directly into the journal input area.
+
+### Test Case 8: Contextual Auto-Correction, Spelling & Grammar Refinement
+1. **Action**: With draft or dictated text in the reflection box, click **Auto-Correct & Grammar** (or toggle *Auto-punctuate speech*).
+2. **Expected Result**: Gemini 3.6 Flash analyzes the text in context, fixes typos (e.g. misspelled words, speech phonetic errors, punctuation, run-on sentences), and displays a clear comparison panel with individual detected fixes. Clicking **Apply Corrections** updates the journal prompt instantly.
+

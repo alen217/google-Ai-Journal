@@ -14,7 +14,8 @@ import {
   TrendingUp, 
   Calendar,
   CheckCircle2,
-  Clock
+  Clock,
+  Mic
 } from "lucide-react";
 
 interface DashboardProps {
@@ -88,14 +89,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          <button
-            id="dashboard-write-entry-btn"
-            onClick={() => onStartNewReflection()}
-            className="px-6 py-4 rounded-2xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
-          >
-            <PlusCircle className="w-5 h-5" />
-            <span>Write New Reflection</span>
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              id="dashboard-write-entry-btn"
+              onClick={() => onStartNewReflection()}
+              className="px-5 py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Write Reflection</span>
+            </button>
+
+            <button
+              id="dashboard-voice-entry-btn"
+              onClick={() => onStartNewReflection()}
+              className="px-4 py-3.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-100 font-bold text-sm border border-stone-700 shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+              title="Speak directly to your journal using voice dictation"
+            >
+              <Mic className="w-4 h-4 text-amber-400" />
+              <span>Voice Dictate</span>
+            </button>
+          </div>
         </div>
       </div>
 

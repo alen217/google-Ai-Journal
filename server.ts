@@ -225,6 +225,97 @@ Respond strictly in JSON format matching this schema:
   }
 });
 
+// Smart Contextual Auto-Correction, Spelling, Grammar & Voice Polish Endpoint
+app.post("/api/gemini/refine-text", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { text = "", mode = "auto_correct", mood = "" } = body;
+
+    const trimmedText = String(text).trim();
+    if (!trimmedText) {
+      return res.json({
+        refinedText: "",
+        corrections: [],
+        originalText: "",
+        summary: "No text provided.",
+      });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: "GEMINI_API_KEY is not configured in environment variables or AI Studio Secrets.",
+      });
+    }
+
+    let instructionDetails = "";
+    if (mode === "punctuate_speech") {
+      instructionDetails = `The input is a raw speech-to-text voice dictation transcript that may lack proper punctuation, sentence capitalization, and paragraph breaks. Punctuate it naturally, capitalize sentence beginnings and proper nouns, fix obvious speech recognition phonetic errors or misheard homophones, while keeping the author's exact conversational phrasing and heartfelt words.`;
+    } else if (mode === "polish_flow") {
+      instructionDetails = `Gently polish the text for clarity, grammatical fluidity, and cadence without altering the author's authentic tone, emotional vulnerability, or personal vocabulary. Keep it natural and personal.`;
+    } else {
+      // default: auto_correct & fix_grammar_spelling
+      instructionDetails = `Perform contextual spell checking, grammar correction, typo fixes, and punctuation repair. Fix misspelled words (e.g. 'grmamer' -> 'grammar', 'speach' -> 'speech', 'accoreding' -> 'according'), fix run-on punctuation, and correct verb tenses based on context, but preserve the author's authentic emotional voice and original meaning completely.`;
+    }
+
+    const prompt = `You are a mindful journaling writing assistant and contextual speech-to-text editor.
+${instructionDetails}
+
+User's Journal Text:
+"""
+${trimmedText}
+"""
+${mood ? `Context Mood: ${mood}` : ""}
+
+Respond strictly in JSON format matching this schema:
+{
+  "refinedText": "The complete polished, spell-checked and grammatically correct journal text",
+  "corrections": [
+    {
+      "original": "misspelled word or grammatical segment",
+      "corrected": "corrected word or segment",
+      "explanation": "Brief 3-6 word reason (e.g. 'Corrected typo', 'Added period', 'Contextual homophone fix')"
+    }
+  ],
+  "changeSummary": "A concise 1-sentence note of what was improved"
+}`;
+
+    const systemInstruction =
+      "You are a precise JSON-only text refinement engine. Output valid raw JSON only, with no markdown code fences or conversational text.";
+
+    const result = await generateContentWithFallback(prompt, systemInstruction);
+    let parsedData: any = {};
+
+    try {
+      let cleanJson = result.text.trim();
+      if (cleanJson.startsWith("```json")) {
+        cleanJson = cleanJson.replace(/^```json/, "").replace(/```$/, "").trim();
+      } else if (cleanJson.startsWith("```")) {
+        cleanJson = cleanJson.replace(/^```/, "").replace(/```$/, "").trim();
+      }
+      parsedData = JSON.parse(cleanJson);
+    } catch {
+      parsedData = {
+        refinedText: trimmedText,
+        corrections: [],
+        changeSummary: "Text processed without changes.",
+      };
+    }
+
+    res.json({
+      refinedText: parsedData.refinedText || trimmedText,
+      corrections: Array.isArray(parsedData.corrections) ? parsedData.corrections : [],
+      changeSummary: parsedData.changeSummary || "Text polished successfully.",
+      originalText: trimmedText,
+      modelUsed: result.modelUsed,
+    });
+  } catch (error: any) {
+    console.error("Error in /api/gemini/refine-text:", error);
+    res.status(500).json({
+      error: error?.message || "Failed to refine journal text.",
+    });
+  }
+});
+
 // Boot server with Vite middleware in dev or static files in prod
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

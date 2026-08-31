@@ -10,6 +10,7 @@ import {
 import { MOODS, POPULAR_TAGS, JOURNALING_PROMPTS } from "../lib/constants";
 import { persistReflection, getTodayDateString } from "../lib/firebase";
 import { encryptPayload } from "../lib/encryption";
+import { VoiceDictationBar } from "./VoiceDictationBar";
 import { 
   Sparkles, 
   Send, 
@@ -631,6 +632,17 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
 
         {/* Input Box Form */}
         <form onSubmit={handleSendMessage} className="pt-4 border-t border-stone-100 space-y-3">
+          
+          {/* Voice-to-Text Dictation & Contextual Auto-Correction Bar */}
+          <VoiceDictationBar
+            currentText={inputPrompt}
+            onTextChange={setInputPrompt}
+            onAppendText={(chunk) => {
+              setInputPrompt((prev) => (prev ? `${prev} ${chunk.trim()}` : chunk.trim()));
+            }}
+            currentMood={MOODS[selectedMood].label}
+          />
+
           <div className="relative">
             <textarea
               id="editor-prompt-textarea"
@@ -643,7 +655,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
                   handleSendMessage();
                 }
               }}
-              placeholder="Type your reflection or response here... (Press Cmd+Enter or click Send to converse with Gemini)"
+              placeholder="Type or dictate your reflection with voice... (Press Cmd+Enter or click 'Reflect with AI' to converse with Gemini)"
               className="w-full p-4 rounded-2xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50/50 text-stone-900 text-sm leading-relaxed placeholder:text-stone-400 resize-y"
             />
           </div>
