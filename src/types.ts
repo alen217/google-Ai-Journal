@@ -132,7 +132,7 @@ export interface StreakMilestone {
   unlocked: boolean;
 }
 
-export type AppView = "dashboard" | "new_journal" | "history" | "analytics";
+export type AppView = "dashboard" | "new_journal" | "history" | "analytics" | "insights";
 
 export type TextRefineMode = "auto_correct" | "fix_grammar_spelling" | "polish_flow" | "punctuate_speech";
 
@@ -148,5 +148,155 @@ export interface RefineResult {
   changeSummary: string;
   originalText: string;
   modelUsed?: string;
+}
+
+export type CalendarItemType = "event" | "task" | "reminder";
+export type CalendarItemCategory = 
+  | "event" 
+  | "task" 
+  | "deadline" 
+  | "appointment" 
+  | "meeting" 
+  | "exam" 
+  | "birthday" 
+  | "anniversary" 
+  | "travel" 
+  | "goal" 
+  | "follow_up";
+
+export interface DetectedCalendarItem {
+  id: string;
+  title: string;
+  type: CalendarItemType;
+  category: CalendarItemCategory;
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm or null
+  description?: string;
+  relativeDateText?: string;
+  isAmbiguousDate?: boolean;
+  clarificationPrompt?: string;
+  suggestedReminder?: string;
+  reminderMinutesBefore?: number; // e.g. 30, 1440 (1 day), 2880 (2 days)
+  sourceReflectionId?: string;
+  sourceReflectionTitle?: string;
+  selected?: boolean;
+  status?: "suggested" | "confirmed" | "cancelled";
+  createdAt?: string;
+}
+
+export interface EntryAnalysisResult {
+  id: string;
+  reflectionId: string;
+  userId: string;
+  createdAt: string;
+  detectedEvents: DetectedCalendarItem[];
+  detectedTasks: DetectedCalendarItem[];
+  detectedDates: Array<{ label: string; date: string; context: string }>;
+  suggestedReminders: Array<{ reminder: string; targetDate?: string; targetItemTitle?: string }>;
+  insightsSummary?: string;
+}
+
+export interface WeeklyReflectionStructure {
+  majorEvents: string[];
+  importantExperiences: string[];
+  accomplishments: string[];
+  challenges: string[];
+  unfinishedTasks: string[];
+  upcomingCommitments: string[];
+  goalsMentioned: string[];
+  significantChanges: string[];
+}
+
+export interface PeriodPattern {
+  title: string;
+  observation: string;
+  category?: string;
+}
+
+export interface WeeklyAnalysisResult {
+  id: string;
+  userId: string;
+  weekIdentifier: string; // e.g. "2026-W36"
+  startDate: string;
+  endDate: string;
+  entryCount: number;
+  accomplishmentCount: number;
+  taskCount: number;
+  upcomingEventCount: number;
+  patternCount: number;
+  createdAt: string;
+  reflection: WeeklyReflectionStructure;
+  patterns: PeriodPattern[];
+  moodOverview?: string | null;
+  accomplishments: string[];
+  unfinishedItems: string[];
+  upcomingEvents: DetectedCalendarItem[];
+  comparison?: {
+    hasComparisonData: boolean;
+    summaryPoints: string[];
+  };
+  oneParagraphSummary: string;
+}
+
+export interface MonthInReviewStructure {
+  majorEvents: string[];
+  majorAccomplishments: string[];
+  challenges: string[];
+  importantDecisions: string[];
+  memorableMoments: string[];
+  goalsAchieved: string[];
+  goalsInProgress: string[];
+}
+
+export interface MonthlyProgressItem {
+  goal: string;
+  progressStage: string;
+  details: string;
+}
+
+export interface MonthlyAnalysisResult {
+  id: string;
+  userId: string;
+  monthIdentifier: string; // e.g. "2026-09"
+  monthName: string; // e.g. "September 2026"
+  startDate: string;
+  endDate: string;
+  entryCount: number;
+  majorEventCount: number;
+  accomplishmentCount: number;
+  unfinishedTaskCount: number;
+  upcomingEventCount: number;
+  recurringThemeCount: number;
+  createdAt: string;
+  monthInReview: MonthInReviewStructure;
+  personalPatterns: Array<{ theme: string; details: string }>;
+  progressTracking: MonthlyProgressItem[];
+  importantDates: DetectedCalendarItem[];
+  reflectionQuestions: Array<{ question: string; contextPrompt: string }>;
+  comparison?: {
+    hasComparisonData: boolean;
+    summaryPoints: string[];
+  };
+  oneParagraphSummary: string;
+}
+
+export interface CalendarAssistantSettings {
+  allowAIJournalAnalysis: boolean;
+  allowCalendarSuggestions: boolean;
+  allowEmotionalAnalysis: boolean;
+}
+
+export interface SavedCalendarEvent {
+  id: string;
+  userId: string;
+  title: string;
+  type: CalendarItemType;
+  date: string;
+  time?: string;
+  description?: string;
+  reminderMinutesBefore?: number;
+  sourceReflectionId?: string;
+  status: "confirmed" | "synced";
+  createdAt: string;
 }
 

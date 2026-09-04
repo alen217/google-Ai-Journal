@@ -316,6 +316,496 @@ Respond strictly in JSON format matching this schema:
   }
 });
 
+// Helper to format ICS timestamp (e.g. 20260915T140000Z or 20260915)
+function formatIcsDateTime(dateStr: string, timeStr?: string): string {
+  const cleanDate = dateStr.replace(/-/g, "");
+  if (timeStr && timeStr.includes(":")) {
+    const [h, m] = timeStr.split(":");
+    return `${cleanDate}T${h.padStart(2, "0")}${m.padStart(2, "0")}00`;
+  }
+  return cleanDate;
+}
+
+// Helper to format Google Calendar URL
+function makeGoogleCalendarUrl(title: string, dateStr: string, timeStr?: string, desc?: string): string {
+  const cleanDate = dateStr.replace(/-/g, "");
+  let datesParam = "";
+  if (timeStr && timeStr.includes(":")) {
+    const [h, m] = timeStr.split(":");
+    const startIso = `${cleanDate}T${h.padStart(2, "0")}${m.padStart(2, "0")}00`;
+    // default 1 hour event
+    const endH = (parseInt(h, 10) + 1).toString().padStart(2, "0");
+    const endIso = `${cleanDate}T${endH}${m.padStart(2, "0")}00`;
+    datesParam = `${startIso}/${endIso}`;
+  } else {
+    // All-day event
+    datesParam = `${cleanDate}/${cleanDate}`;
+  }
+
+  const base = "https://calendar.google.com/calendar/render?action=TEMPLATE";
+  const params = new URLSearchParams({
+    text: title,
+    dates: datesParam,
+    details: desc || "Added from ReflectAI Secure Journal",
+  });
+  return `${base}&${params.toString()}`;
+}
+
+// Generate RFC 5545 iCalendar (.ics) string
+function generateIcsContent(items: any[]): string {
+  const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  let lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//ReflectAI//Journal Calendar Assistant//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+  ];
+
+  for (const item of items) {
+    const uid = `reflectai-${item.id || Date.now()}-${Math.random().toString(36).substr(2, 6)}@reflectai.app`;
+    const dtStart = formatIcsDateTime(item.date, item.time);
+    const hasTime = Boolean(item.time && item.time.includes(":"));
+
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${uid}`);
+    lines.push(`DTSTAMP:${now}`);
+    if (hasTime) {
+      lines.push(`DTSTART:${dtStart}`);
+      // 1-hour end
+      const [h, m] = (item.time || "12:00").split(":");
+      const endH = (parseInt(h, 10) + 1).toString().padStart(2, "0");
+      const cleanDate = item.date.replace(/-/g, "");
+      lines.push(`DTEND:${cleanDate}T${endH}${m.padStart(2, "0")}00`);
+    } else {
+      lines.push(`DTSTART;VALUE=DATE:${dtStart}`);
+    }
+    lines.push(`SUMMARY:${item.title.replace(/[,;\n]/g, " ")}`);
+    lines.push(`DESCRIPTION:${(item.description || "Identified in your ReflectAI Journal").replace(/\n/g, "\\n")}`);
+    
+    // Optional reminder alarm
+    if (item.reminderMinutesBefore && item.reminderMinutesBefore > 0) {
+      lines.push("BEGIN:VALARM");
+      lines.push("ACTION:DISPLAY");
+      lines.push(`DESCRIPTION:Reminder: ${item.title.replace(/[,;\n]/g, " ")}`);
+      lines.push(`TRIGGER:-PT${item.reminderMinutesBefore}M`);
+      lines.push("END:VALARM");
+    }
+
+    lines.push("END:VEVENT");
+  }
+
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+}
+
+// 1. Individual Journal Entry Analysis Endpoint
+app.post("/api/gemini/analyze-entry", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { 
+      journalText = "", 
+      entryDate = new Date().toISOString().slice(0, 10), 
+      referenceDate = "2026-09-04",
+      options = { allowCalendarSuggestions: true, allowEmotionalAnalysis: true } 
+    } = body;
+
+    const trimmedText = String(journalText).trim();
+    if (!trimmedText) {
+      return res.status(400).json({ error: "journalText is required." });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "GEMINI_API_KEY is not configured." });
+    }
+
+    const prompt = `You are an expert AI Journaling Analyst & Calendar Assistant.
+Your goal is to carefully analyze this single private journal entry to extract meaningful insights, commitments, tasks, and potential calendar items.
+
+CURRENT REFERENCE DATE: "${referenceDate}" (Today)
+ENTRY DATE: "${entryDate}"
+
+JOURNAL ENTRY CONTENT:
+"""
+${trimmedText}
+"""
+
+CRITICAL INSTRUCTIONS:
+1. Do NOT interpret every sentence as a task or reminder.
+2. Only identify actionable items when the journal provides reasonable evidence that the user intends to remember or act on them.
+3. Classify detected items into:
+   - "event": Something that happens at a particular time or date (meetings, exams, birthdays, anniversaries, appointments, travel plans, celebrations).
+   - "task": Something the user needs to do or complete (deliverables, assignments, preparations, chores, personal goals).
+   - "reminder": A suggested advance reminder for an event or task (e.g., prepare slides 2 days before, send birthday card).
+4. Relative Date Understanding:
+   - Calculate exact "YYYY-MM-DD" dates based on the Reference Date "${referenceDate}" and Entry Date "${entryDate}".
+   - "tomorrow" -> calculate next calendar day.
+   - "next Monday", "this Friday", "in two weeks" -> calculate the exact date.
+   - If a date reference is ambiguous (e.g. "meeting on Monday" without specifying which one), mark "isAmbiguousDate": true, set "date" to null or best estimate, and provide a polite "clarificationPrompt" (e.g. "You mentioned a meeting on Monday. Which Monday did you mean?").
+5. Only suggest reminders when helpful, with reasonable lead times (e.g., 30 mins, 1 day, 2 days before).
+
+Respond STRICTLY in valid JSON matching this schema:
+{
+  "detectedEvents": [
+    {
+      "title": "Short descriptive event title",
+      "type": "event",
+      "category": "event | appointment | meeting | exam | birthday | anniversary | travel | deadline",
+      "date": "YYYY-MM-DD",
+      "time": "HH:mm or null",
+      "relativeDateText": "quoted relative date phrasing or null",
+      "isAmbiguousDate": false,
+      "clarificationPrompt": null,
+      "suggestedReminder": "e.g. Prepare presentation slides before September 13",
+      "reminderMinutesBefore": 1440,
+      "confidenceReason": "Quote or brief reasoning"
+    }
+  ],
+  "detectedTasks": [
+    {
+      "title": "Short actionable task title",
+      "type": "task",
+      "category": "task | goal | follow_up | deadline",
+      "date": "YYYY-MM-DD or null",
+      "time": null,
+      "relativeDateText": "quoted relative date phrasing or null",
+      "isAmbiguousDate": false,
+      "suggestedReminder": "e.g. Finish database module before Tuesday",
+      "reminderMinutesBefore": 60,
+      "confidenceReason": "Quote or brief reasoning"
+    }
+  ],
+  "detectedDates": [
+    {
+      "label": "Brief label",
+      "date": "YYYY-MM-DD",
+      "context": "Context or relevance from entry"
+    }
+  ],
+  "suggestedReminders": [
+    {
+      "reminder": "Suggested reminder action",
+      "targetDate": "YYYY-MM-DD or null",
+      "targetItemTitle": "Associated event or task"
+    }
+  ],
+  "insightsSummary": "A concise 2-sentence summary of commitments and reflections found in this entry."
+}`;
+
+    const systemInstruction = "You are a precise JSON-only journal analysis engine. Output valid raw JSON only, with no markdown fences, backticks, or conversational text.";
+
+    const result = await generateContentWithFallback(prompt, systemInstruction);
+    let parsed: any = {};
+    try {
+      let cleanJson = result.text.trim();
+      if (cleanJson.startsWith("```json")) {
+        cleanJson = cleanJson.replace(/^```json/, "").replace(/```$/, "").trim();
+      } else if (cleanJson.startsWith("```")) {
+        cleanJson = cleanJson.replace(/^```/, "").replace(/```$/, "").trim();
+      }
+      parsed = JSON.parse(cleanJson);
+    } catch (parseErr) {
+      console.warn("Failed to parse JSON from analyze-entry:", parseErr, result.text);
+      parsed = {
+        detectedEvents: [],
+        detectedTasks: [],
+        detectedDates: [],
+        suggestedReminders: [],
+        insightsSummary: "No explicit commitments or dates detected in this reflection.",
+      };
+    }
+
+    // Attach unique IDs to items
+    const events = (Array.isArray(parsed.detectedEvents) ? parsed.detectedEvents : []).map((e: any, idx: number) => ({
+      ...e,
+      id: `ev_${Date.now()}_${idx}`,
+      selected: true,
+      status: "suggested",
+    }));
+
+    const tasks = (Array.isArray(parsed.detectedTasks) ? parsed.detectedTasks : []).map((t: any, idx: number) => ({
+      ...t,
+      id: `tk_${Date.now()}_${idx}`,
+      selected: true,
+      status: "suggested",
+    }));
+
+    res.json({
+      detectedEvents: events,
+      detectedTasks: tasks,
+      detectedDates: Array.isArray(parsed.detectedDates) ? parsed.detectedDates : [],
+      suggestedReminders: Array.isArray(parsed.suggestedReminders) ? parsed.suggestedReminders : [],
+      insightsSummary: parsed.insightsSummary || "Analysis completed.",
+      modelUsed: result.modelUsed,
+    });
+  } catch (error: any) {
+    console.error("Error in /api/gemini/analyze-entry:", error);
+    res.status(500).json({
+      error: error?.message || "Failed to analyze journal entry.",
+    });
+  }
+});
+
+// 2. Weekly & Monthly Journal Analysis Endpoint
+app.post("/api/gemini/analyze-period", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const {
+      periodType = "week", // "week" | "month"
+      periodLabel = "",
+      referenceDate = "2026-09-04",
+      entries = [],
+      previousPeriodEntries = [],
+      options = { allowEmotionalAnalysis: true, allowCalendarSuggestions: true },
+    } = body;
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return res.status(400).json({ error: "At least one journal entry is required for period analysis." });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "GEMINI_API_KEY is not configured." });
+    }
+
+    // Prepare serialized entry texts
+    const entrySummaries = entries.map((e, idx) => {
+      return `[Entry ${idx + 1} | Date: ${e.date || "Unknown"} | Title: "${e.title || "Untitled"}" | Mood: ${e.mood || "Reflective"}]
+${e.text || (e.messages || []).map((m: any) => m.content).join("\n")}
+`;
+    }).join("\n---\n\n");
+
+    const prevSummaries = previousPeriodEntries.length > 0
+      ? previousPeriodEntries.map((e, idx) => {
+          return `[Previous Period Entry ${idx + 1} | Date: ${e.date} | Title: "${e.title}"]
+${e.text || (e.messages || []).map((m: any) => m.content).join("\n")}`;
+        }).join("\n---\n\n")
+      : "";
+
+    const hasPreviousData = previousPeriodEntries.length > 0;
+
+    let specificInstructions = "";
+    if (periodType === "week") {
+      specificInstructions = `WEEKLY ANALYSIS GOALS:
+1. Weekly Reflection: Major events, important experiences, accomplishments, challenges, unfinished tasks, upcoming commitments, goals mentioned, and significant changes from previous entries.
+2. Patterns: Identify recurring patterns across the week (e.g. "You mentioned feeling productive on days when you started work earlier"). Do NOT make medical or psychological diagnoses. Phrase observations as patterns or possibilities.
+3. Mood/Emotion Overview: ${options.allowEmotionalAnalysis ? "Provide a lightweight, respectful overview of mood flow across the week." : "User has disabled emotional analysis; set moodOverview to null."}
+4. Accomplishments: Clear bullet points of completed milestones.
+5. Unfinished Items: Tasks still in progress.
+6. Upcoming Events: Commitments or dates mentioned that occur in the future (relative to ${referenceDate}).
+7. Comparison with Previous Week: ${hasPreviousData ? "Compare meaningful changes with previous week's entries (never invent numbers)." : "State clearly that previous week data is limited; do NOT fabricate comparison statistics."}
+8. One-Paragraph Summary: A short, warm personal reflection ("Your Week in One Paragraph").`;
+    } else {
+      specificInstructions = `MONTHLY ANALYSIS GOALS:
+1. Month in Review: Major events, accomplishments, challenges, important decisions, memorable moments, goals achieved, and goals still in progress.
+2. Personal Patterns: Look for recurring themes across the month (career, productivity, habits, social). Phrase respectfully as observations.
+3. Progress Tracking: Compare goals mentioned earlier in the month with later entries (e.g., Goal -> Progress stage: Started -> In Progress -> Completed/Pending).
+4. Important Dates: Extract upcoming deadlines, appointments, events, birthdays, travel, exams, meetings.
+5. Reflection Questions: Generate 2-3 thoughtful reflection questions based on the month's themes that the user could answer as a new journal entry.
+6. Comparison with Previous Month: ${hasPreviousData ? "Compare with previous month (never invent statistics)." : "State that prior month data is limited; do NOT fabricate statistics."}
+7. One-Paragraph Summary: A thoughtful personal summary ("Your Month in One Paragraph").`;
+    }
+
+    const prompt = `You are ReflectAI's deep periodic analysis engine.
+Analyze the following user journal entries for ${periodLabel} (Current Reference Date: ${referenceDate}).
+
+${specificInstructions}
+
+CURRENT PERIOD JOURNAL ENTRIES (${entries.length} entries):
+${entrySummaries}
+
+${hasPreviousData ? `PREVIOUS PERIOD JOURNAL ENTRIES (${previousPeriodEntries.length} entries for comparison):\n${prevSummaries}` : "NO PREVIOUS PERIOD ENTRIES PROVIDED."}
+
+Respond STRICTLY in valid JSON matching this schema:
+{
+  "reflection": {
+    "majorEvents": ["event 1", "event 2"],
+    "importantExperiences": ["experience 1"],
+    "accomplishments": ["accomplishment 1"],
+    "challenges": ["challenge 1"],
+    "unfinishedTasks": ["task 1"],
+    "upcomingCommitments": ["commitment 1"],
+    "goalsMentioned": ["goal 1"],
+    "significantChanges": ["change 1"]
+  },
+  "patterns": [
+    {
+      "title": "Short title (e.g. Morning Productivity)",
+      "observation": "Empathetic observation phrased as a possibility",
+      "category": "productivity | habit | wellbeing | work"
+    }
+  ],
+  "moodOverview": ${options.allowEmotionalAnalysis ? '"Warm lightweight mood flow summary"' : 'null'},
+  "accomplishments": ["Bullet 1", "Bullet 2"],
+  "unfinishedItems": ["Unfinished 1", "Unfinished 2"],
+  "upcomingEvents": [
+    {
+      "title": "Title of future event or task",
+      "date": "YYYY-MM-DD",
+      "time": "HH:mm or null",
+      "type": "event | task | reminder",
+      "category": "meeting | exam | birthday | travel | deadline | task",
+      "description": "Details or notes",
+      "reminderMinutesBefore": 1440
+    }
+  ],
+  "progressTracking": [
+    {
+      "goal": "Goal description",
+      "progressStage": "Started -> API completed -> Testing remaining",
+      "details": "Evidence from entries"
+    }
+  ],
+  "reflectionQuestions": [
+    {
+      "question": "Thoughtful reflection question?",
+      "contextPrompt": "Brief background or journal prompt starter"
+    }
+  ],
+  "comparison": {
+    "hasComparisonData": ${hasPreviousData},
+    "summaryPoints": [
+      ${hasPreviousData ? '"Comparison point 1", "Comparison point 2"' : '"Insufficient historical data for a statistical comparison."'}
+    ]
+  },
+  "oneParagraphSummary": "A reflective, thoughtful 4-5 sentence summary of the period."
+}`;
+
+    const systemInstruction = "You are a precise JSON-only journal analysis engine. Output valid raw JSON only, without markdown code fences or outside commentary.";
+
+    const result = await generateContentWithFallback(prompt, systemInstruction);
+    let parsed: any = {};
+    try {
+      let cleanJson = result.text.trim();
+      if (cleanJson.startsWith("```json")) {
+        cleanJson = cleanJson.replace(/^```json/, "").replace(/```$/, "").trim();
+      } else if (cleanJson.startsWith("```")) {
+        cleanJson = cleanJson.replace(/^```/, "").replace(/```$/, "").trim();
+      }
+      parsed = JSON.parse(cleanJson);
+    } catch (err) {
+      console.warn("Failed to parse period analysis JSON:", err, result.text);
+      parsed = {
+        reflection: {
+          majorEvents: [],
+          importantExperiences: [],
+          accomplishments: [],
+          challenges: [],
+          unfinishedTasks: [],
+          upcomingCommitments: [],
+          goalsMentioned: [],
+          significantChanges: [],
+        },
+        patterns: [],
+        moodOverview: options.allowEmotionalAnalysis ? "Reflections captured across your entries." : null,
+        accomplishments: [],
+        unfinishedItems: [],
+        upcomingEvents: [],
+        progressTracking: [],
+        reflectionQuestions: [],
+        comparison: { hasComparisonData: false, summaryPoints: ["Insufficient comparative entries."] },
+        oneParagraphSummary: "A meaningful period of personal journaling and quiet reflection.",
+      };
+    }
+
+    // Attach unique IDs to upcoming events
+    const upcomingEvents = (Array.isArray(parsed.upcomingEvents) ? parsed.upcomingEvents : []).map((e: any, idx: number) => ({
+      ...e,
+      id: `period_ev_${Date.now()}_${idx}`,
+      selected: true,
+      status: "suggested",
+    }));
+
+    res.json({
+      periodType,
+      periodLabel,
+      entryCount: entries.length,
+      reflection: parsed.reflection || {},
+      patterns: Array.isArray(parsed.patterns) ? parsed.patterns : [],
+      moodOverview: parsed.moodOverview || null,
+      accomplishments: Array.isArray(parsed.accomplishments) ? parsed.accomplishments : [],
+      unfinishedItems: Array.isArray(parsed.unfinishedItems) ? parsed.unfinishedItems : [],
+      upcomingEvents,
+      progressTracking: Array.isArray(parsed.progressTracking) ? parsed.progressTracking : [],
+      reflectionQuestions: Array.isArray(parsed.reflectionQuestions) ? parsed.reflectionQuestions : [],
+      comparison: parsed.comparison || { hasComparisonData: false, summaryPoints: [] },
+      oneParagraphSummary: parsed.oneParagraphSummary || "Analysis completed.",
+      modelUsed: result.modelUsed,
+    });
+  } catch (error: any) {
+    console.error("Error in /api/gemini/analyze-period:", error);
+    res.status(500).json({
+      error: error?.message || "Failed to analyze period entries.",
+    });
+  }
+});
+
+// 3. Calendar Integration Endpoint (Authorized & Confirmed Items Only)
+app.post("/api/calendar/add-events", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { userId, items = [], userConfirmed } = body;
+
+    // Strict user authorization check
+    if (userConfirmed !== true) {
+      return res.status(403).json({
+        error: "Forbidden: User authorization is strictly required before calendar items can be created or synchronized.",
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required." });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "At least one calendar item must be provided." });
+    }
+
+    // Sanitize and validate every item
+    const confirmedItems = items.map((item: any) => {
+      const id = item.id || `cal_${Date.now()}_${Math.random().toString(36).substr(2, 7)}`;
+      const title = String(item.title || "Journal Reminder").trim();
+      const type = ["event", "task", "reminder"].includes(item.type) ? item.type : "event";
+      const date = item.date || new Date().toISOString().slice(0, 10);
+      const time = item.time || null;
+      const desc = item.description || (item.suggestedReminder ? `Reminder: ${item.suggestedReminder}` : "Added from ReflectAI Journal");
+      const reminderMinutes = typeof item.reminderMinutesBefore === "number" ? item.reminderMinutesBefore : 60;
+      const googleUrl = makeGoogleCalendarUrl(title, date, time, desc);
+
+      return {
+        id,
+        userId,
+        title,
+        type,
+        date,
+        time,
+        description: desc,
+        reminderMinutesBefore: reminderMinutes,
+        sourceReflectionId: item.sourceReflectionId || null,
+        googleCalendarUrl: googleUrl,
+        status: "confirmed",
+        createdAt: new Date().toISOString(),
+      };
+    });
+
+    // Generate iCalendar RFC 5545 format
+    const icsContent = generateIcsContent(confirmedItems);
+
+    res.json({
+      success: true,
+      message: `Successfully authorized and prepared ${confirmedItems.length} calendar item(s).`,
+      count: confirmedItems.length,
+      items: confirmedItems,
+      icsContent,
+      firstGoogleCalendarUrl: confirmedItems[0]?.googleCalendarUrl || null,
+    });
+  } catch (error: any) {
+    console.error("Error in /api/calendar/add-events:", error);
+    res.status(500).json({
+      error: error?.message || "Failed to process calendar addition.",
+    });
+  }
+});
+
 // Boot server with Vite middleware in dev or static files in prod
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

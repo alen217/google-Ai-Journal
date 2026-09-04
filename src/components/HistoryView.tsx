@@ -4,6 +4,7 @@ import { ReflectionDoc, UserProfile, MoodType, ScrapbookLayout } from "../types"
 import { MOODS, POPULAR_TAGS } from "../lib/constants";
 import { JOURNAL_TEMPLATES } from "../lib/scrapbookConstants";
 import { ScrapbookCanvas } from "./ScrapbookCanvas";
+import { EntryInsightsSection } from "./EntryInsightsSection";
 import { deleteReflectionDoc } from "../lib/firebase";
 import { decryptPayload } from "../lib/encryption";
 import { 
@@ -560,6 +561,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
                 </div>
               )}
+
+              {/* ✨ Journal Insights & Calendar Assistant */}
+              <div className="pt-4">
+                <EntryInsightsSection
+                  reflection={activeViewingDoc}
+                  userProfile={userProfile}
+                />
+              </div>
 
             </div>
           )}

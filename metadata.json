@@ -1,6 +1,6 @@
 {
   "name": "ReflectAI - Secure Journal & AI Companion",
-  "description": "An authenticated private journaling app with Gemini AI reflections, mood analytics, daily streaks, client-side encryption, and isolated Firestore storage.",
+  "description": "A secure digital journal with creative scrapbook styling, Gemini AI analysis, periodic reflection summaries, and privacy-first calendar assistant integration.",
   "requestFramePermissions": [
     "microphone"
   ],

@@ -39,6 +39,35 @@
         "summary": { "type": "string", "description": "Gemini generated insight or summary" },
         "actionItems": { "type": "array", "description": "Key takeaways or action prompts" }
       }
+    },
+    "Analysis": {
+      "collection": "users/{userId}/analyses",
+      "fields": {
+        "id": { "type": "string", "description": "Unique analysis record ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "type": { "type": "string", "description": "entry | week | month" },
+        "targetId": { "type": "string", "description": "Target reflectionId or period identifier (e.g. 2026-W36, 2026-09)" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "summary": { "type": "string", "description": "AI generated reflection summary" },
+        "detectedItems": { "type": "array", "description": "Detected calendar/task items" },
+        "insights": { "type": "object", "description": "Categorized analysis data (events, tasks, patterns, etc.)" }
+      }
+    },
+    "CalendarItem": {
+      "collection": "users/{userId}/calendarItems",
+      "fields": {
+        "id": { "type": "string", "description": "Unique calendar item ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "sourceReflectionId": { "type": "string", "description": "Associated reflection ID if any" },
+        "title": { "type": "string", "description": "Event or task title" },
+        "type": { "type": "string", "description": "event | task | reminder" },
+        "date": { "type": "string", "description": "YYYY-MM-DD" },
+        "time": { "type": "string", "description": "HH:mm or null" },
+        "description": { "type": "string", "description": "Event notes or details" },
+        "reminderMinutesBefore": { "type": "number", "description": "Minutes before event for alert" },
+        "status": { "type": "string", "description": "confirmed | synced | cancelled" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" }
+      }
     }
   }
 }

@@ -25,6 +25,7 @@ import { Dashboard } from "./components/Dashboard";
 import { JournalEditor } from "./components/JournalEditor";
 import { HistoryView } from "./components/HistoryView";
 import { MoodAnalytics } from "./components/MoodAnalytics";
+import { InsightsDashboard } from "./components/InsightsDashboard";
 import { EncryptionModal } from "./components/EncryptionModal";
 import { MilestoneModal } from "./components/MilestoneModal";
 
@@ -38,6 +39,7 @@ export default function App() {
   // App navigation state
   const [currentView, setCurrentView] = useState<AppView>("dashboard");
   const [activeEditingDoc, setActiveEditingDoc] = useState<ReflectionDoc | null>(null);
+  const [preloadedPrompt, setPreloadedPrompt] = useState<string | null>(null);
 
   // Data state
   const [reflections, setReflections] = useState<ReflectionDoc[]>([]);
@@ -291,6 +293,18 @@ export default function App() {
           <MoodAnalytics
             reflections={reflections}
             userProfile={userProfile}
+          />
+        )}
+
+        {currentView === "insights" && (
+          <InsightsDashboard
+            userProfile={userProfile}
+            reflections={reflections}
+            onStartNewJournalWithPrompt={(promptText) => {
+              handleStartNewReflection(promptText);
+              setCurrentView("new_journal");
+            }}
+            onNavigateToHistory={() => setCurrentView("history")}
           />
         )}
       </main>

@@ -812,6 +812,46 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </button>
         </div>
 
+        {/* ✨ AI Periodic Analysis & Calendar Assistant Banner */}
+        <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-950 via-stone-900 to-stone-900 text-stone-100 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-5 border border-amber-800/40">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>AI-Powered Reflection & Calendar Intelligence</span>
+            </div>
+            <h3 className="text-xl sm:text-2xl font-serif font-bold text-amber-100 font-['Newsreader']">
+              Analyze My Week, Month & Upcoming Commitments
+            </h3>
+            <p className="text-xs text-stone-300 max-w-xl font-['Newsreader'] italic leading-relaxed">
+              Reflect on your experiences, discover recurring life patterns, identify future appointments, deadlines & tasks, and authorize calendar additions securely.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap shrink-0 font-sans">
+            <button
+              onClick={() => onNavigate("insights")}
+              className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-bold shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>📊 Analyze Week</span>
+            </button>
+            <button
+              onClick={() => onNavigate("insights")}
+              className="px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-200 border border-amber-700/50 text-xs font-semibold shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>📚 Analyze Month</span>
+            </button>
+            <button
+              onClick={() => onNavigate("insights")}
+              className="px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 text-xs font-medium shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>📅 Calendar Assistant</span>
+            </button>
+          </div>
+        </div>
+
         {/* Visual Details Bento Grid */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           

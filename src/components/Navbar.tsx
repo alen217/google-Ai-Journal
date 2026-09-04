@@ -91,6 +91,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <BarChart3 className="w-4 h-4" />
               Mood & Streaks
             </button>
+            <button
+              id="nav-insights-tab"
+              onClick={() => setCurrentView("insights")}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                currentView === "insights"
+                  ? "bg-stone-800 text-amber-300 shadow-inner"
+                  : "text-stone-300 hover:text-stone-100 hover:bg-stone-800/60"
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              AI Insights & Calendar
+            </button>
           </nav>
         </div>
 
@@ -213,6 +225,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           Mood & Streaks
+        </button>
+        <button
+          onClick={() => setCurrentView("insights")}
+          className={`px-3 py-1 rounded-md font-medium ${
+            currentView === "insights" ? "text-amber-300 bg-stone-800" : "text-stone-400"
+          }`}
+        >
+          AI Insights
         </button>
       </div>
     </header>

@@ -21,6 +21,7 @@ import { encryptPayload } from "../lib/encryption";
 import { VoiceDictationBar } from "./VoiceDictationBar";
 import { ScrapbookCanvas } from "./ScrapbookCanvas";
 import { ScrapbookToolbar } from "./ScrapbookToolbar";
+import { EntryInsightsSection } from "./EntryInsightsSection";
 import { 
   Sparkles, 
   Send, 
@@ -50,6 +51,7 @@ import {
 
 interface JournalEditorProps {
   initialDoc?: ReflectionDoc | null;
+  initialPrompt?: string | null;
   userProfile: UserProfile;
   encryptionKey: CryptoKey | null;
   onBack: () => void;
@@ -59,6 +61,7 @@ interface JournalEditorProps {
 
 export const JournalEditor: React.FC<JournalEditorProps> = ({
   initialDoc,
+  initialPrompt,
   userProfile,
   encryptionKey,
   onBack,
@@ -69,6 +72,8 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   const [docId] = useState<string>(
     initialDoc?.id || `entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   );
+  const [savedReflectionDoc, setSavedReflectionDoc] = useState<ReflectionDoc | null>(initialDoc || null);
+  const [showInsightsSection, setShowInsightsSection] = useState<boolean>(Boolean(initialDoc));
   const [title, setTitle] = useState<string>(initialDoc?.title || "");
   const [selectedMood, setSelectedMood] = useState<MoodType>(initialDoc?.mood || "reflective");
   const [selectedTags, setSelectedTags] = useState<string[]>(initialDoc?.tags || ["Personal Growth"]);
@@ -78,7 +83,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   const [messages, setMessages] = useState<JournalMessage[]>(
     initialDoc?.messages || []
   );
-  const [inputPrompt, setInputPrompt] = useState("");
+  const [inputPrompt, setInputPrompt] = useState(initialPrompt || "");
   const [aiMode, setAiMode] = useState<AIServiceMode>("reflect");
   
   // AI summary & action items
@@ -480,13 +485,21 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
         userProfile
       );
 
+      const finalDoc: ReflectionDoc = {
+        ...docToPersist,
+        scrapbook: cleanScrapbook,
+        messages: currentMessages,
+      };
+
+      setSavedReflectionDoc(finalDoc);
+      setShowInsightsSection(true);
       setSaveSuccess(true);
       clearDraft();
-      setTimeout(() => setSaveSuccess(false), 3000);
+      setTimeout(() => setSaveSuccess(false), 4000);
 
       // Pass the fully restored document back to App state
       onSaved(
-        { ...docToPersist, scrapbook: cleanScrapbook, messages: currentMessages },
+        finalDoc,
         result.updatedProfile,
         result.streakIncremented
       );
@@ -584,6 +597,18 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
             </button>
           )}
 
+          {savedReflectionDoc && (
+            <button
+              id="editor-analyze-entry-btn"
+              type="button"
+              onClick={() => setShowInsightsSection((prev) => !prev)}
+              className="px-3.5 py-2 rounded-xl bg-amber-800 hover:bg-amber-900 text-amber-50 text-xs font-semibold shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>{showInsightsSection ? "Hide Insights" : "✨ Analyze Entry"}</span>
+            </button>
+          )}
+
           <button
             id="editor-save-doc-btn"
             type="button"
@@ -618,11 +643,37 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
         </div>
       )}
 
-      {/* Save Success Notice Toast */}
+      {/* Save Success Notice Toast with Analyze Entry Prompt */}
       {saveSuccess && (
-        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-fade-in shadow-xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span className="font-semibold">✨ Journal entry and scrapbook layout successfully saved to Firestore!</span>
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 to-amber-50 border border-emerald-300 text-emerald-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-semibold">✨ Journal entry saved securely! Ready to detect calendar commitments and insights?</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowInsightsSection(true)}
+            className="px-3.5 py-1.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-amber-50 font-semibold flex items-center gap-1.5 self-start sm:self-auto shadow-xs"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>✨ Analyze Entry</span>
+          </button>
+        </div>
+      )}
+
+      {/* ✨ Expandable Journal Insights Section */}
+      {savedReflectionDoc && showInsightsSection && (
+        <div className="animate-fade-in">
+          <EntryInsightsSection
+            reflection={savedReflectionDoc}
+            userProfile={userProfile}
+            rawText={
+              savedReflectionDoc.messages
+                ?.filter((m) => m.role === "user")
+                .map((m) => m.content)
+                .join("\n\n") || inputPrompt
+            }
+          />
         </div>
       )}
 

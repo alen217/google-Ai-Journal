@@ -217,3 +217,66 @@ export async function deleteReflectionDoc(userId: string, reflectionId: string):
     await deleteDoc(interRef);
   } catch {}
 }
+
+// Persist an AI analysis record in /users/{userId}/analyses/{analysisId}
+export async function persistAnalysisDoc(
+  userId: string,
+  analysisId: string,
+  payload: Record<string, any>
+): Promise<void> {
+  const ref = doc(db, "users", userId, "analyses", analysisId);
+  const clean = sanitizePayload({
+    ...payload,
+    id: analysisId,
+    userId,
+    updatedAt: new Date().toISOString(),
+  });
+  await setDoc(ref, clean);
+}
+
+// Fetch all analyses for a user
+export async function fetchUserAnalyses(userId: string): Promise<any[]> {
+  const colRef = collection(db, "users", userId, "analyses");
+  const q = query(colRef, orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  const results: any[] = [];
+  snapshot.forEach((snap) => {
+    results.push(snap.data());
+  });
+  return results;
+}
+
+// Delete an analysis record
+export async function deleteAnalysisDoc(userId: string, analysisId: string): Promise<void> {
+  const ref = doc(db, "users", userId, "analyses", analysisId);
+  await deleteDoc(ref);
+}
+
+// Persist a confirmed calendar item in /users/{userId}/calendarItems/{itemId}
+export async function persistCalendarItem(userId: string, item: any): Promise<void> {
+  const ref = doc(db, "users", userId, "calendarItems", item.id);
+  const clean = sanitizePayload({
+    ...item,
+    userId,
+    updatedAt: new Date().toISOString(),
+  });
+  await setDoc(ref, clean);
+}
+
+// Fetch all calendar items for a user
+export async function fetchUserCalendarItems(userId: string): Promise<any[]> {
+  const colRef = collection(db, "users", userId, "calendarItems");
+  const q = query(colRef, orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  const results: any[] = [];
+  snapshot.forEach((snap) => {
+    results.push(snap.data());
+  });
+  return results;
+}
+
+// Delete calendar item
+export async function deleteCalendarItemDoc(userId: string, itemId: string): Promise<void> {
+  const ref = doc(db, "users", userId, "calendarItems", itemId);
+  await deleteDoc(ref);
+}

@@ -19,6 +19,16 @@ service cloud.firestore {
       match /milestones/{milestoneId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      // AI journal analyses history subcollection
+      match /analyses/{analysisId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // User confirmed calendar items subcollection
+      match /calendarItems/{itemId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
   }
 }
