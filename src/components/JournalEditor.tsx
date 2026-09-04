@@ -1,16 +1,26 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { 
   MoodType, 
   AIServiceMode, 
   JournalMessage, 
   ReflectionDoc, 
-  UserProfile 
+  UserProfile,
+  ScrapbookLayout,
+  ScrapbookElement,
+  PaperStyle
 } from "../types";
 import { MOODS, POPULAR_TAGS, JOURNALING_PROMPTS } from "../lib/constants";
+import { 
+  JOURNAL_TEMPLATES, 
+  PAPER_STYLES, 
+  JournalTemplate 
+} from "../lib/scrapbookConstants";
 import { persistReflection, getTodayDateString } from "../lib/firebase";
 import { encryptPayload } from "../lib/encryption";
 import { VoiceDictationBar } from "./VoiceDictationBar";
+import { ScrapbookCanvas } from "./ScrapbookCanvas";
+import { ScrapbookToolbar } from "./ScrapbookToolbar";
 import { 
   Sparkles, 
   Send, 
@@ -28,7 +38,14 @@ import {
   Lightbulb, 
   Compass,
   Tag,
-  Smile
+  Smile,
+  Palette,
+  Eye,
+  Edit3,
+  Layers,
+  LayoutTemplate,
+  Camera,
+  Check
 } from "lucide-react";
 
 interface JournalEditorProps {
@@ -48,7 +65,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   onSaved,
   onOpenEncryptionSettings,
 }) => {
-  // Document state
+  // Document identifiers & core metadata
   const [docId] = useState<string>(
     initialDoc?.id || `entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   );
@@ -69,6 +86,46 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   const [actionItems, setActionItems] = useState<string[]>(initialDoc?.actionItems || []);
   const [keyEmotions, setKeyEmotions] = useState<string[]>(initialDoc?.keyEmotions || []);
 
+  // -------------------------------------------------------------
+  // Visual Scrapbook Layout & Canvas State
+  // -------------------------------------------------------------
+  const [editorMode, setEditorMode] = useState<"write" | "scrapbook" | "preview">(
+    initialDoc?.scrapbook ? "scrapbook" : "write"
+  );
+  const [selectedCanvasElementId, setSelectedCanvasElementId] = useState<string | null>(null);
+
+  // Initialize scrapbook layout
+  const defaultDateStr = initialDoc?.date || getTodayDateString();
+  const initialTextContent = (initialDoc?.messages || [])
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .join("\n\n");
+
+  const [scrapbookLayout, setScrapbookLayout] = useState<ScrapbookLayout>(() => {
+    if (initialDoc?.scrapbook) {
+      return initialDoc.scrapbook;
+    }
+    // Generate initial layout from default template
+    const template = JOURNAL_TEMPLATES[0];
+    return {
+      templateId: template.id,
+      paperStyle: template.paperStyle,
+      paperColor: template.paperColor,
+      elements: template.generateElements(
+        initialDoc?.title || "Mindful Reflection",
+        defaultDateStr,
+        initialTextContent,
+        initialDoc?.summary
+      ),
+      canvasWidth: 800,
+      canvasHeight: 1100,
+    };
+  });
+
+  // Undo / Redo history stack for scrapbook changes
+  const [historyStack, setHistoryStack] = useState<ScrapbookLayout[]>([scrapbookLayout]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+
   // UI state
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -76,13 +133,129 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll on new message
+  // Auto-scroll on new message in write mode
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isAiGenerating]);
+    if (editorMode === "write") {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isAiGenerating, editorMode]);
+
+  // Autosave draft to localStorage
+  useEffect(() => {
+    const draftKey = `reflectai_draft_${docId}`;
+    try {
+      const draftData = {
+        title,
+        selectedMood,
+        selectedTags,
+        messages,
+        inputPrompt,
+        summary,
+        actionItems,
+        keyEmotions,
+        scrapbookLayout,
+        updatedAt: Date.now(),
+      };
+      localStorage.setItem(draftKey, JSON.stringify(draftData));
+      setHasUnsavedDraft(true);
+    } catch {
+      // Ignore quota errors
+    }
+  }, [docId, title, selectedMood, selectedTags, messages, inputPrompt, summary, actionItems, keyEmotions, scrapbookLayout]);
+
+  // Clean draft on unmount if saved
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(`reflectai_draft_${docId}`);
+      setHasUnsavedDraft(false);
+    } catch {
+      // Ignore
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Scrapbook History Management (Undo / Redo)
+  // -------------------------------------------------------------
+  const handleScrapbookChange = (newLayout: ScrapbookLayout) => {
+    setScrapbookLayout(newLayout);
+    // Push onto history stack (limit to 25 steps)
+    const currentHistory = historyStack.slice(0, historyIndex + 1);
+    const updated = [...currentHistory, newLayout].slice(-25);
+    setHistoryStack(updated);
+    setHistoryIndex(updated.length - 1);
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      const prev = historyIndex - 1;
+      setHistoryIndex(prev);
+      setScrapbookLayout(historyStack[prev]);
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < historyStack.length - 1) {
+      const next = historyIndex + 1;
+      setHistoryIndex(next);
+      setScrapbookLayout(historyStack[next]);
+    }
+  };
+
+  // Apply a preset template
+  const handleApplyTemplate = (template: JournalTemplate) => {
+    const currentText = messages.map((m) => m.content).join("\n\n") || inputPrompt;
+    const newElements = template.generateElements(
+      title || "Mindful Reflection",
+      defaultDateStr,
+      currentText,
+      summary
+    );
+    const updatedLayout: ScrapbookLayout = {
+      templateId: template.id,
+      paperStyle: template.paperStyle,
+      paperColor: template.paperColor,
+      elements: newElements,
+      canvasWidth: 800,
+      canvasHeight: 1100,
+    };
+    handleScrapbookChange(updatedLayout);
+    setSelectedCanvasElementId(null);
+  };
+
+  // Synchronize written text into Scrapbook canvas when switching tabs
+  const handleSwitchToScrapbook = () => {
+    // If text was written in inputPrompt or messages, ensure canvas has a text element reflecting it
+    const allUserTexts = messages
+      .filter((m) => m.role === "user")
+      .map((m) => m.content)
+      .concat(inputPrompt.trim() ? [inputPrompt.trim()] : [])
+      .join("\n\n");
+
+    if (allUserTexts) {
+      const hasMainBody = scrapbookLayout.elements.some(
+        (el) => el.id === "main_body" || (el.type === "text" && el.content && el.content.length > 50)
+      );
+
+      if (!hasMainBody) {
+        // Update main text element
+        setScrapbookLayout((prev) => ({
+          ...prev,
+          elements: prev.elements.map((el) => {
+            if (el.id === "main_body" || el.type === "text") {
+              return { ...el, content: allUserTexts };
+            }
+            return el;
+          }),
+        }));
+      }
+    }
+
+    setEditorMode("scrapbook");
+  };
 
   // Insert a quick prompt into the input
   const handleUsePrompt = (promptText: string) => {
@@ -99,32 +272,33 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   const handleAddCustomTag = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && customTagInput.trim()) {
       e.preventDefault();
-      const cleanTag = customTagInput.trim();
-      if (!selectedTags.includes(cleanTag)) {
-        setSelectedTags((prev) => [...prev, cleanTag]);
+      const clean = customTagInput.trim();
+      if (!selectedTags.includes(clean)) {
+        setSelectedTags([...selectedTags, clean]);
       }
       setCustomTagInput("");
     }
   };
 
-  // Send turn to Gemini AI
-  const handleSendMessage = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // -------------------------------------------------------------
+  // Gemini AI Reflection Handler
+  // -------------------------------------------------------------
+  const handleSendPrompt = async () => {
     if (!inputPrompt.trim() || isAiGenerating) return;
 
     const userText = inputPrompt.trim();
     setInputPrompt("");
     setAiError(null);
 
-    const userMessage: JournalMessage = {
+    const userMsg: JournalMessage = {
       id: `msg_${Date.now()}_u`,
       role: "user",
       content: userText,
       timestamp: new Date().toISOString(),
     };
 
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setIsAiGenerating(true);
 
     try {
@@ -132,86 +306,95 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+          prompt: userText,
           mode: aiMode,
           mood: MOODS[selectedMood].label,
-          tags: selectedTags,
-          userPrompt: userText,
+          conversationHistory: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
         }),
       });
 
       const data = await response.json();
+
       if (!response.ok) {
-        throw new Error(data.error || "Failed to generate AI reflection");
+        throw new Error(data.error || "Failed to generate reflection from Gemini.");
       }
 
-      const modelMessage: JournalMessage = {
-        id: `msg_${Date.now()}_m`,
+      const aiMsg: JournalMessage = {
+        id: `msg_${Date.now()}_ai`,
         role: "model",
-        content: data.reply || "Thank you for sharing your thoughts with me.",
-        timestamp: data.timestamp || new Date().toISOString(),
+        content: data.geminiReply,
+        timestamp: new Date().toISOString(),
         modelUsed: data.modelUsed,
       };
 
-      setMessages((prev) => [...prev, modelMessage]);
+      setMessages([...updatedMessages, aiMsg]);
 
-      // If no title yet, set a sensible default or trigger quick analysis
-      if (!title) {
+      // Update AI reflection attributes
+      if (data.summary) setSummary(data.summary);
+      if (data.actionItems) setActionItems(data.actionItems);
+      if (data.keyEmotions) setKeyEmotions(data.keyEmotions);
+
+      // Auto-set title if currently blank
+      if (!title.trim() && userText) {
         const words = userText.split(" ").slice(0, 5).join(" ");
-        setTitle(words ? `${words}...` : "Daily Reflection");
+        setTitle(`${words}...`);
+      }
+
+      // Automatically add Gemini card to scrapbook elements if in scrapbook mode
+      if (data.summary) {
+        setScrapbookLayout((prev) => {
+          const hasAiCard = prev.elements.some((el) => el.type === "ai_card");
+          if (hasAiCard) {
+            return {
+              ...prev,
+              elements: prev.elements.map((el) =>
+                el.type === "ai_card" ? { ...el, content: data.summary } : el
+              ),
+            };
+          } else {
+            const newAiCard: ScrapbookElement = {
+              id: `ai_card_${Date.now()}`,
+              type: "ai_card",
+              x: 60,
+              y: 600,
+              width: 680,
+              height: 130,
+              rotation: 0,
+              zIndex: 12,
+              content: data.summary,
+              caption: "Gemini Reflection Insight",
+              backgroundColor: "#fef3c7",
+              borderColor: "#fde68a",
+              color: "#78350f",
+            };
+            return {
+              ...prev,
+              elements: [...prev.elements, newAiCard],
+            };
+          }
+        });
       }
     } catch (err: any) {
-      console.error("Gemini AI error:", err);
-      setAiError(err?.message || "Failed to connect to Gemini AI.");
+      console.error("Gemini reflect error:", err);
+      setAiError(err?.message || "Failed to reach Gemini AI companion.");
     } finally {
       setIsAiGenerating(false);
     }
   };
 
-  // Trigger Gemini Deep Analysis (auto-title, summary, takeaways)
-  const handleGenerateAnalysis = async () => {
-    const fullText = messages.map((m) => `${m.role === "user" ? "User" : "Gemini"}: ${m.content}`).join("\n\n");
-    if (!fullText.trim()) return;
-
-    setIsAnalyzing(true);
-    try {
-      const response = await fetch("/api/gemini/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          journalText: fullText,
-          currentMood: selectedMood,
-        }),
-      });
-
-      const data = await response.json();
-      if (response.ok) {
-        if (data.suggestedTitle && (!title || title.endsWith("..."))) {
-          setTitle(data.suggestedTitle);
-        }
-        if (data.summary) setSummary(data.summary);
-        if (Array.isArray(data.actionTakeaways) && data.actionTakeaways.length) {
-          setActionItems(data.actionTakeaways);
-        }
-        if (Array.isArray(data.keyEmotions)) {
-          setKeyEmotions(data.keyEmotions);
-        }
-      }
-    } catch (err) {
-      console.warn("Analysis notice:", err);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  // Save Reflection with persistence & encryption check
+  // -------------------------------------------------------------
+  // Save Reflection (Persists content + Scrapbook canvas layout)
+  // -------------------------------------------------------------
   const handleSaveDoc = async () => {
-    if (!messages.length && !inputPrompt.trim()) {
-      setSaveError("Please write at least one thought before saving.");
+    if (!messages.length && !inputPrompt.trim() && !scrapbookLayout.elements.length) {
+      setSaveError("Please write or place thoughts onto your journal page before saving.");
       return;
     }
 
-    // If input has unsent text, include it
+    // Include any trailing input prompt
     let currentMessages = [...messages];
     if (inputPrompt.trim()) {
       currentMessages.push({
@@ -233,24 +416,29 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
       let messagesToSave = currentMessages;
       let summaryToSave = summary;
 
+      // Clean undefined values from scrapbook payload before saving
+      const cleanScrapbook: ScrapbookLayout = JSON.parse(JSON.stringify(scrapbookLayout));
+
       if (isEncrypted) {
         if (!encryptionKey) {
           onOpenEncryptionSettings();
           throw new Error("Please unlock your encryption vault before saving encrypted reflections.");
         }
 
-        // Package and encrypt the sensitive contents
+        // Package and encrypt the sensitive contents including scrapbook layout
         const payloadToEncrypt = JSON.stringify({
           messages: currentMessages,
           summary,
           actionItems,
           keyEmotions,
+          scrapbook: cleanScrapbook,
         });
 
         const encrypted = await encryptPayload(payloadToEncrypt, encryptionKey);
         encryptedData = encrypted.ciphertext;
         iv = encrypted.iv;
-        // In Firestore, store placeholder in plain message fields
+
+        // In Firestore, store encrypted placeholder for public inspection
         messagesToSave = [
           {
             id: "encrypted_payload",
@@ -275,10 +463,11 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
         isEncrypted,
         encryptedData,
         iv,
-        messages: isEncrypted ? currentMessages : messagesToSave, // Keep clean in local memory
+        messages: isEncrypted ? currentMessages : messagesToSave,
         summary,
         actionItems,
         keyEmotions,
+        scrapbook: isEncrypted ? undefined : cleanScrapbook,
       };
 
       const result = await persistReflection(
@@ -286,14 +475,21 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
           ...docToPersist,
           messages: messagesToSave,
           summary: summaryToSave,
+          scrapbook: isEncrypted ? undefined : cleanScrapbook,
         },
         userProfile
       );
 
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
+      clearDraft();
+      setTimeout(() => setSaveSuccess(false), 3000);
 
-      onSaved(docToPersist, result.updatedProfile, result.streakIncremented);
+      // Pass the fully restored document back to App state
+      onSaved(
+        { ...docToPersist, scrapbook: cleanScrapbook, messages: currentMessages },
+        result.updatedProfile,
+        result.streakIncremented
+      );
     } catch (err: any) {
       console.error("Save error:", err);
       setSaveError(err?.message || "Failed to save reflection to Firestore.");
@@ -303,10 +499,14 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-fade-in">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-fade-in">
       
-      {/* Top Bar Navigation & Controls */}
+      {/* ------------------------------------------------------------- */}
+      {/* TOP HEADER: Navigation, Workflow Tabs & Save Button            */}
+      {/* ------------------------------------------------------------- */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200">
+        
+        {/* Left: Back & Title */}
         <div className="flex items-center gap-3">
           <button
             id="editor-back-btn"
@@ -316,324 +516,266 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
+          
           <div>
-            <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
-              {initialDoc ? "Editing Reflection" : "New Reflection Entry"}
+            <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
+              <span>{defaultDateStr}</span>
+              <span>&bull;</span>
+              <span>{MOODS[selectedMood].emoji} {MOODS[selectedMood].label}</span>
             </span>
-            <input
-              id="editor-title-input"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Title your reflection or let Gemini suggest one..."
-              className="block w-full text-xl sm:text-2xl font-bold text-stone-900 bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-stone-400 font-['Newsreader'] italic"
-            />
+            <h1 className="text-xl sm:text-2xl font-bold font-['Newsreader'] italic text-stone-900 truncate max-w-sm sm:max-w-md">
+              {title || "Untitled Reflection"}
+            </h1>
           </div>
         </div>
 
-        {/* Right Action buttons */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
-          {/* E2EE indicator badge */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 border border-stone-200 text-xs font-medium text-stone-700">
-            {userProfile.e2eeEnabled ? (
-              <>
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span className="text-emerald-800 font-semibold">E2EE Protected</span>
-              </>
-            ) : (
-              <>
-                <Lock className="w-3.5 h-3.5 text-stone-400" />
-                <span>Standard Firestore</span>
-              </>
-            )}
-          </div>
-
-          {/* Save Button */}
+        {/* Center: Workflow Mode Tabs */}
+        <div className="flex items-center p-1 bg-stone-200/80 rounded-2xl border border-stone-300/80 self-start sm:self-center shadow-inner">
           <button
-            id="editor-save-btn"
-            onClick={handleSaveDoc}
-            disabled={isSaving}
-            className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-100 font-semibold text-sm shadow-sm hover:shadow transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
+            type="button"
+            onClick={() => setEditorMode("write")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              editorMode === "write"
+                ? "bg-white text-stone-900 shadow-xs scale-100"
+                : "text-stone-600 hover:text-stone-900"
+            }`}
           >
-            {isSaving ? (
-              <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
-            ) : saveSuccess ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <Save className="w-4 h-4 text-amber-400" />
-            )}
-            <span>{isSaving ? "Saving..." : saveSuccess ? "Saved to Firestore" : "Save Entry"}</span>
+            <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+            <span>1. Write & Converse</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSwitchToScrapbook}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              editorMode === "scrapbook"
+                ? "bg-white text-stone-900 shadow-xs scale-100"
+                : "text-stone-600 hover:text-stone-900"
+            }`}
+          >
+            <Palette className="w-3.5 h-3.5 text-indigo-600" />
+            <span>2. Scrapbook Studio</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setEditorMode("preview")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              editorMode === "preview"
+                ? "bg-white text-stone-900 shadow-xs scale-100"
+                : "text-stone-600 hover:text-stone-900"
+            }`}
+          >
+            <Eye className="w-3.5 h-3.5 text-emerald-600" />
+            <span>3. Paper Preview</span>
           </button>
         </div>
+
+        {/* Right: Security Badge & Save Button */}
+        <div className="flex items-center gap-2">
+          {userProfile.e2eeEnabled && (
+            <button
+              onClick={onOpenEncryptionSettings}
+              className="px-2.5 py-1.5 rounded-xl bg-stone-100 text-stone-700 text-xs font-medium border border-stone-200 flex items-center gap-1 hover:bg-stone-200 transition-colors"
+              title="AES-256 Client-Side Encryption Enabled"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden md:inline">E2EE</span>
+            </button>
+          )}
+
+          <button
+            id="editor-save-doc-btn"
+            type="button"
+            onClick={handleSaveDoc}
+            disabled={isSaving}
+            className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-bold shadow-xs transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
+          >
+            {isSaving ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Save Entry</span>
+              </>
+            )}
+          </button>
+        </div>
+
       </div>
 
-      {/* Save Error Alert */}
+      {/* Save Error Notice */}
       {saveError && (
-        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-            <span>{saveError}</span>
-          </div>
-          <button
-            onClick={handleSaveDoc}
-            className="px-3 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold hover:bg-rose-700 transition-colors"
-          >
-            Retry Save
+        <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 animate-fade-in">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span className="flex-1">{saveError}</span>
+          <button onClick={() => setSaveError(null)} className="text-rose-500 hover:text-rose-800 text-xs">
+            Dismiss
           </button>
         </div>
       )}
 
-      {/* Mood Selector Row */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/80 shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
-            <Smile className="w-4 h-4 text-amber-600" />
-            How are you feeling right now?
-          </label>
-          <span className="text-xs text-stone-500 font-medium">
-            Tagged: <strong className="text-stone-800">{MOODS[selectedMood].label}</strong>
-          </span>
+      {/* Save Success Notice Toast */}
+      {saveSuccess && (
+        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-fade-in shadow-xs">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span className="font-semibold">✨ Journal entry and scrapbook layout successfully saved to Firestore!</span>
         </div>
+      )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-          {(Object.keys(MOODS) as MoodType[]).map((moodKey) => {
-            const mood = MOODS[moodKey];
-            const isSelected = selectedMood === moodKey;
-            return (
-              <button
-                key={moodKey}
-                id={`mood-btn-${moodKey}`}
-                type="button"
-                onClick={() => setSelectedMood(moodKey)}
-                className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-all ${
-                  isSelected
-                    ? `${mood.bgClass} ${mood.borderClass} ring-2 ring-amber-400/50 shadow-sm scale-102 font-bold`
-                    : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-900"
-                }`}
-              >
-                <span className="text-lg">{mood.emoji}</span>
-                <span className="truncate w-full text-center">{mood.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
-      {/* Tags Selector */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/80 shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
-            <Tag className="w-4 h-4 text-amber-600" />
-            Life Areas & Themes
-          </label>
-        </div>
+      {/* ============================================================= */}
+      {/* MODE 1: WRITE & CONVERSE (Interactive Writing Experience)     */}
+      {/* ============================================================= */}
+      {editorMode === "write" && (
+        <div className="space-y-6">
+          
+          {/* Metadata Row: Mood Selector & Title */}
+          <div className="bg-white p-5 rounded-3xl border border-stone-200/90 shadow-xs space-y-4">
+            
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <input
+                  id="editor-title-input"
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Give your reflection a title (e.g. Walking through morning mist...)"
+                  className="w-full text-lg sm:text-xl font-bold font-['Newsreader'] italic text-stone-900 border-none outline-none placeholder:text-stone-300 focus:ring-0 bg-transparent"
+                />
+              </div>
 
-        <div className="flex flex-wrap gap-2 items-center">
-          {POPULAR_TAGS.map((tag) => {
-            const isSelected = selectedTags.includes(tag);
-            return (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTag(tag)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  isSelected
-                    ? "bg-amber-100 text-amber-900 border border-amber-300 font-semibold"
-                    : "bg-stone-100 text-stone-600 hover:bg-stone-200 border border-transparent"
-                }`}
-              >
-                {isSelected ? `✓ ${tag}` : `+ ${tag}`}
-              </button>
-            );
-          })}
+              {/* Mood Selector Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {(Object.keys(MOODS) as MoodType[]).map((moodKey) => {
+                  const m = MOODS[moodKey];
+                  const isSelected = selectedMood === moodKey;
+                  return (
+                    <button
+                      key={moodKey}
+                      type="button"
+                      onClick={() => setSelectedMood(moodKey)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all whitespace-nowrap active:scale-95 ${
+                        isSelected
+                          ? `${m.bgClass} ring-2 ring-amber-500 font-bold shadow-xs`
+                          : "bg-stone-50 hover:bg-stone-100 text-stone-700 border border-stone-200"
+                      }`}
+                    >
+                      <span>{m.emoji}</span>
+                      <span>{m.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-          {/* Custom tag input */}
-          <input
-            type="text"
-            value={customTagInput}
-            onChange={(e) => setCustomTagInput(e.target.value)}
-            onKeyDown={handleAddCustomTag}
-            placeholder="+ Add custom tag (Enter)..."
-            className="px-3 py-1 text-xs rounded-lg border border-dashed border-stone-300 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-stone-50 text-stone-700 placeholder:text-stone-400"
-          />
-        </div>
-      </div>
+            {/* Tags Row */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-stone-100 text-xs">
+              <span className="text-stone-400 font-medium flex items-center gap-1">
+                <Tag className="w-3.5 h-3.5" />
+                Tags:
+              </span>
+              {POPULAR_TAGS.map((tag) => {
+                const isSelected = selectedTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggleTag(tag)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                      isSelected
+                        ? "bg-amber-100 text-amber-900 border border-amber-300 font-bold"
+                        : "bg-stone-100 hover:bg-stone-200 text-stone-600"
+                    }`}
+                  >
+                    #{tag}
+                  </button>
+                );
+              })}
+              <input
+                type="text"
+                value={customTagInput}
+                onChange={(e) => setCustomTagInput(e.target.value)}
+                onKeyDown={handleAddCustomTag}
+                placeholder="+ tag & Enter"
+                className="px-2 py-0.5 rounded-lg bg-stone-50 border border-stone-200 text-[11px] text-stone-700 focus:outline-none focus:ring-1 focus:ring-amber-500 w-24"
+              />
+            </div>
 
-      {/* AI Mode Selector */}
-      <div className="bg-gradient-to-r from-stone-900 to-stone-800 rounded-2xl p-4 text-stone-100 shadow-md">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400" />
-            <span className="text-sm font-bold tracking-tight font-['Plus_Jakarta_Sans']">
-              Gemini AI Conversation Mode
+          </div>
+
+          {/* Prompt Starters */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <span className="text-xs font-bold text-stone-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
+              <Compass className="w-3.5 h-3.5 text-amber-600" />
+              Prompts:
             </span>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setAiMode("reflect")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
-                aiMode === "reflect"
-                  ? "bg-amber-400 text-stone-950 font-bold shadow-sm"
-                  : "bg-stone-800 text-stone-300 hover:bg-stone-700"
-              }`}
-            >
-              <Compass className="w-3.5 h-3.5" />
-              Mindful Reflection
-            </button>
-            <button
-              type="button"
-              onClick={() => setAiMode("summarize")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
-                aiMode === "summarize"
-                  ? "bg-amber-400 text-stone-950 font-bold shadow-sm"
-                  : "bg-stone-800 text-stone-300 hover:bg-stone-700"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Executive Summary
-            </button>
-            <button
-              type="button"
-              onClick={() => setAiMode("brainstorm")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
-                aiMode === "brainstorm"
-                  ? "bg-amber-400 text-stone-950 font-bold shadow-sm"
-                  : "bg-stone-800 text-stone-300 hover:bg-stone-700"
-              }`}
-            >
-              <Lightbulb className="w-3.5 h-3.5" />
-              Brainstorm Solutions
-            </button>
-            <button
-              type="button"
-              onClick={() => setAiMode("coaching")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
-                aiMode === "coaching"
-                  ? "bg-amber-400 text-stone-950 font-bold shadow-sm"
-                  : "bg-stone-800 text-stone-300 hover:bg-stone-700"
-              }`}
-            >
-              <Brain className="w-3.5 h-3.5" />
-              Mindful Coach
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Prompts Inspo Carousel */}
-      {messages.length === 0 && (
-        <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
-          <span className="text-xs font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
-            <HelpCircle className="w-4 h-4 text-amber-600" />
-            Looking for inspiration to start writing? Click any prompt:
-          </span>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {JOURNALING_PROMPTS.slice(0, 4).map((p, idx) => (
+            {JOURNALING_PROMPTS.map((promptText, idx) => (
               <button
                 key={idx}
                 type="button"
-                onClick={() => handleUsePrompt(p)}
-                className="text-left p-2.5 rounded-xl bg-white/80 hover:bg-white text-xs text-stone-700 hover:text-stone-950 border border-amber-200/60 transition-colors shadow-2xs"
+                onClick={() => handleUsePrompt(promptText)}
+                className="px-3 py-1.5 rounded-xl bg-white hover:bg-stone-50 text-stone-700 border border-stone-200 text-xs font-medium whitespace-nowrap shadow-2xs transition-colors flex items-center gap-1"
               >
-                &ldquo;{p}&rdquo;
+                <span className="text-stone-500 italic truncate max-w-[240px]">{promptText}</span>
               </button>
             ))}
           </div>
-        </div>
-      )}
 
-      {/* Conversational Stream & Message History */}
-      <div className="bg-white rounded-3xl p-6 border border-stone-200 shadow-sm space-y-6 min-h-[300px]">
-        {messages.length === 0 ? (
-          <div className="py-12 text-center text-stone-400 space-y-2">
-            <Compass className="w-10 h-10 mx-auto text-stone-300" />
-            <p className="text-sm font-medium text-stone-600 font-['Newsreader'] italic text-lg">
-              Begin your reflection below. Share what happened, how you felt, or questions weighing on your heart.
-            </p>
-            <p className="text-xs text-stone-400">
-              Gemini will listen attentively and provide mindful perspective.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {messages.map((msg, index) => (
-              <div
-                key={msg.id || index}
-                className={`flex gap-3.5 ${
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                {msg.role === "model" && (
-                  <div className="w-8 h-8 rounded-xl bg-amber-500 flex items-center justify-center text-stone-950 font-bold shrink-0 shadow-sm mt-1">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                )}
-
+          {/* Conversation Feed */}
+          <div className="space-y-4">
+            {messages.length === 0 ? (
+              <div className="p-10 rounded-3xl bg-white border border-stone-200/90 text-center space-y-3 shadow-xs">
+                <Brain className="w-10 h-10 text-stone-300 mx-auto" />
+                <h3 className="text-lg font-bold text-stone-800 font-['Newsreader'] italic">
+                  A blank page for your thoughts.
+                </h3>
+                <p className="text-xs text-stone-500 max-w-md mx-auto leading-relaxed">
+                  Write freely below or use speech dictation. When ready, invite Gemini AI to reflect, synthesize takeaways, or continue in your digital scrapbook studio!
+                </p>
+              </div>
+            ) : (
+              messages.map((m) => (
                 <div
-                  className={`max-w-2xl rounded-2xl p-4 sm:p-5 text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-stone-900 text-stone-100 rounded-br-xs shadow-sm"
-                      : "bg-stone-50 text-stone-800 border border-stone-200/90 rounded-bl-xs shadow-2xs"
+                  key={m.id}
+                  className={`p-5 rounded-3xl text-sm leading-relaxed transition-all shadow-xs ${
+                    m.role === "user"
+                      ? "bg-white text-stone-900 border border-stone-200 ml-4 sm:ml-12 font-['Newsreader'] text-base"
+                      : "bg-amber-50/80 text-stone-800 border border-amber-200/80 mr-4 sm:mr-12"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-4 mb-2 pb-1.5 border-b border-stone-700/20 text-[11px] opacity-75">
-                    <span className="font-semibold">
-                      {msg.role === "user" ? "Your Reflection" : "Gemini Reflection"}
+                  <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-2">
+                    <span className="flex items-center gap-1.5 text-stone-700">
+                      {m.role === "user" ? "You" : "Gemini Mindful Companion"}
                     </span>
-                    <span>
-                      {new Date(msg.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                    <span className="font-mono text-[10px] text-stone-400">
+                      {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
 
-                  <div className="prose prose-stone max-w-none prose-p:my-1.5 prose-headings:my-2 prose-ul:my-1">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <div className="prose prose-stone max-w-none text-sm leading-relaxed">
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
                   </div>
                 </div>
-
-                {msg.role === "user" && userProfile.photoURL && (
-                  <img
-                    src={userProfile.photoURL}
-                    alt="User"
-                    className="w-8 h-8 rounded-full border border-stone-300 shrink-0 mt-1 object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                )}
-              </div>
-            ))}
+              ))
+            )}
 
             {isAiGenerating && (
-              <div className="flex gap-3.5 items-center text-stone-500 text-sm">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/80 flex items-center justify-center text-stone-950 shrink-0 animate-pulse">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div className="flex items-center gap-2 p-3 bg-stone-50 rounded-2xl border border-stone-200 text-xs">
-                  <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-amber-500 border-t-transparent"></span>
-                  <span>Gemini is reflecting thoughtfully on your thoughts...</span>
-                </div>
+              <div className="p-5 rounded-3xl bg-amber-50/50 border border-amber-200/70 mr-4 sm:mr-12 flex items-center gap-3 animate-pulse">
+                <RefreshCw className="w-4 h-4 animate-spin text-amber-600" />
+                <span className="text-xs text-stone-600 italic">
+                  Gemini is holding space and crafting a mindful reflection...
+                </span>
               </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
-        )}
 
-        {/* AI Error Alert */}
-        {aiError && (
-          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>{aiError}</span>
-          </div>
-        )}
-
-        {/* Input Box Form */}
-        <form onSubmit={handleSendMessage} className="pt-4 border-t border-stone-100 space-y-3">
-          
-          {/* Voice-to-Text Dictation & Contextual Auto-Correction Bar */}
+          {/* Voice Dictation Bar */}
           <VoiceDictationBar
             currentText={inputPrompt}
             onTextChange={setInputPrompt}
@@ -643,92 +785,134 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
             currentMood={MOODS[selectedMood].label}
           />
 
-          <div className="relative">
+          {/* Input Box & AI Controls */}
+          <div className="bg-white p-4 rounded-3xl border border-stone-200/90 shadow-sm space-y-3">
+            
             <textarea
               id="editor-prompt-textarea"
               rows={4}
               value={inputPrompt}
               onChange={(e) => setInputPrompt(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                   e.preventDefault();
-                  handleSendMessage();
+                  handleSendPrompt();
                 }
               }}
-              placeholder="Type or dictate your reflection with voice... (Press Cmd+Enter or click 'Reflect with AI' to converse with Gemini)"
-              className="w-full p-4 rounded-2xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-stone-50/50 text-stone-900 text-sm leading-relaxed placeholder:text-stone-400 resize-y"
+              placeholder="Type your reflection or speak using the voice bar above... (Press Cmd+Enter to send to Gemini)"
+              className="w-full p-2 bg-transparent text-stone-900 placeholder:text-stone-400 border-none outline-none resize-y text-sm leading-relaxed"
+            />
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-stone-100">
+              
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-stone-500">Gemini Lens:</span>
+                <select
+                  value={aiMode}
+                  onChange={(e) => setAiMode(e.target.value as AIServiceMode)}
+                  className="px-3 py-1.5 rounded-xl bg-stone-100 border border-stone-200 text-xs font-medium text-stone-800 focus:outline-none"
+                >
+                  <option value="reflect">🌸 Mindful Reflection</option>
+                  <option value="summarize">📋 Executive Summary</option>
+                  <option value="brainstorm">💡 Brainstorm Solutions</option>
+                  <option value="coaching">🧭 Mindful Life Coach</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSwitchToScrapbook}
+                  className="px-4 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Palette className="w-4 h-4 text-indigo-600" />
+                  <span>Customize in Scrapbook Studio &rarr;</span>
+                </button>
+
+                <button
+                  id="editor-reflect-ai-btn"
+                  type="button"
+                  onClick={handleSendPrompt}
+                  disabled={isAiGenerating || !inputPrompt.trim()}
+                  className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-100 text-xs font-bold shadow-xs transition-all active:scale-95 flex items-center gap-2 disabled:opacity-40"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Reflect with AI</span>
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
+
+      {/* ============================================================= */}
+      {/* MODE 2: SCRAPBOOK STUDIO (Interactive Visual Canvas & Design) */}
+      {/* ============================================================= */}
+      {editorMode === "scrapbook" && (
+        <div className="space-y-6">
+          
+          {/* Top Scrapbook Toolbar */}
+          <ScrapbookToolbar
+            layout={scrapbookLayout}
+            onChangeLayout={handleScrapbookChange}
+            selectedElementId={selectedCanvasElementId}
+            onSelectElement={setSelectedCanvasElementId}
+            entryTitle={title}
+            entryDate={defaultDateStr}
+            entryText={messages.map((m) => m.content).join("\n\n") || inputPrompt}
+            aiSummary={summary}
+            onApplyTemplate={handleApplyTemplate}
+          />
+
+          {/* Center Interactive Paper Canvas */}
+          <div className="bg-stone-200/50 p-4 sm:p-8 rounded-3xl border border-stone-300/80 shadow-inner flex justify-center">
+            <ScrapbookCanvas
+              layout={scrapbookLayout}
+              onChangeLayout={handleScrapbookChange}
+              selectedElementId={selectedCanvasElementId}
+              onSelectElement={setSelectedCanvasElementId}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              canUndo={historyIndex > 0}
+              canRedo={historyIndex < historyStack.length - 1}
             />
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="text-xs text-stone-400 hidden sm:block">
-              Tip: <kbd className="px-1.5 py-0.5 rounded bg-stone-100 border text-[10px]">Cmd+Enter</kbd> to reflect with Gemini
+        </div>
+      )}
+
+
+      {/* ============================================================= */}
+      {/* MODE 3: PAPER PREVIEW (Clean Photorealistic Finished View)    */}
+      {/* ============================================================= */}
+      {editorMode === "preview" && (
+        <div className="space-y-6">
+          
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+            <div className="flex items-center gap-2 font-medium">
+              <Eye className="w-4 h-4 text-amber-700" />
+              <span>Full Journal Page Preview — This is exactly how your entry will look when saved and read.</span>
             </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-              {messages.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleGenerateAnalysis}
-                  disabled={isAnalyzing}
-                  className="px-3 py-2 rounded-xl border border-stone-300 hover:bg-stone-100 text-stone-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                  title="Generate structured executive summary and key takeaways"
-                >
-                  <Brain className="w-3.5 h-3.5 text-amber-600" />
-                  <span>{isAnalyzing ? "Analyzing..." : "Auto-Summary"}</span>
-                </button>
-              )}
-
-              <button
-                id="editor-send-btn"
-                type="submit"
-                disabled={isAiGenerating || !inputPrompt.trim()}
-                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm shadow-sm transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
-              >
-                <Send className="w-4 h-4" />
-                <span>Reflect with AI</span>
-              </button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      {/* Summary & Key Action Items Section (if available) */}
-      {(summary || actionItems.length > 0) && (
-        <div className="bg-amber-50/80 rounded-3xl p-6 border border-amber-200 shadow-sm space-y-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-700" />
-            <h3 className="text-base font-bold text-amber-950 font-['Plus_Jakarta_Sans']">
-              AI Journal Synthesis & Takeaways
-            </h3>
+            <button
+              onClick={() => setEditorMode("scrapbook")}
+              className="font-bold underline text-amber-950"
+            >
+              &larr; Back to Customizing
+            </button>
           </div>
 
-          {summary && (
-            <div>
-              <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">
-                Executive Reflection
-              </h4>
-              <p className="text-sm text-stone-700 leading-relaxed font-['Newsreader'] italic">
-                {summary}
-              </p>
-            </div>
-          )}
+          <div className="bg-stone-200/50 p-4 sm:p-8 rounded-3xl border border-stone-300/80 shadow-inner flex justify-center">
+            <ScrapbookCanvas
+              layout={scrapbookLayout}
+              onChangeLayout={() => {}}
+              readOnly={true}
+            />
+          </div>
 
-          {actionItems.length > 0 && (
-            <div className="pt-2 border-t border-amber-200/70">
-              <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-2">
-                Empowering Action Steps
-              </h4>
-              <ul className="space-y-1.5">
-                {actionItems.map((item, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-xs text-stone-800">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
 

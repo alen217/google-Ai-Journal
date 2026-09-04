@@ -260,6 +260,8 @@ export default function App() {
             onNavigate={setCurrentView}
             onOpenEncryptionSettings={() => setIsEncryptionModalOpen(true)}
             isEncryptedUnlocked={Boolean(encryptionKey)}
+            onReflectionSaved={handleReflectionSaved}
+            encryptionKey={encryptionKey}
           />
         )}
 

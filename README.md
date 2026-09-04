@@ -130,3 +130,23 @@ The following step-by-step test cases verify every feature of ReflectAI:
 1. **Action**: With draft or dictated text in the reflection box, click **Auto-Correct & Grammar** (or toggle *Auto-punctuate speech*).
 2. **Expected Result**: Gemini 3.6 Flash analyzes the text in context, fixes typos (e.g. misspelled words, speech phonetic errors, punctuation, run-on sentences), and displays a clear comparison panel with individual detected fixes. Clicking **Apply Corrections** updates the journal prompt instantly.
 
+### Test Case 9: Unified Easy-to-Navigate 3-Tier Dashboard
+1. **Action**: On the Dashboard, review the top-to-bottom layout hierarchy:
+   - **Tier 1 (Top)**: Direct Journal Entry Composer with mood pills, prompt chips, voice dictation, inline textarea, and instant *Reflect with AI* & *Save Entry* buttons.
+   - **Tier 2 (Middle)**: Visual representation of details (proportional mood distribution bar, journal stats counters, data isolation card, and interactive recent reflections gallery with search and mood filter).
+   - **Tier 3 (Bottom)**: 30-day streak activity heatmap, milestone progress bar, and comprehensive navigation hub cards (Archive, Analytics, E2EE Vault, Markdown Export).
+2. **Expected Result**: All sections are visible, well-spaced, intuitive, and allow completing any journaling action without hunting through menus.
+
+### Test Case 10: Creative Digital Scrapbook & Paper Journal Page Experience
+1. **Action**: Click **Scrapbook Studio** (or switch to *2. Scrapbook Studio* inside any journal editor):
+   - **Paper Styles**: Change paper style between *Cream Linen*, *Ruled Notebook* (with spiral holes and margin line), *Dot Grid*, *Kraft Paper*, *Soft Pastel*, *Vintage Parchment*, *Sage Meadow*, and *Midnight Ink*.
+   - **Presets**: Click *Journal Presets* and select *Photo Scrapbook* or *Soft Pastel*.
+   - **Photos**: Click *Add Photo* or drag-and-drop an image file directly onto the paper canvas. Observe polaroid styling, tilted washi tape accents, and customizable handwritten captions.
+   - **Drag & Arrange**: Drag text boxes, polaroids, stickers, and washi tapes freely. Use corner handles to resize and the top knob or slider to rotate.
+   - **Stickers & Washi Tape**: Stamp stickers (🌸, 🌿, 📌, 💖, ☕) and place colorful washi tape strips (Amber, Blush, Sage, Cyan, Lavender, Kraft).
+   - **Preview & Save**: Click *3. Paper Preview* to inspect the photorealistic finished paper page, then click *Save Entry*.
+   - **Archive Inspection**: Open *Past Entries* and click any saved entry. Toggle between *📜 Paper Journal View* and *📋 Reading & Chat View* to see your visual scrapbook layout faithfully reproduced.
+2. **Expected Result**: All visual elements are freely positioned, rotated, and layered; the canvas displays authentic tactile paper textures and shadows; and saved layout positions and styles persist across sessions.
+
+
+

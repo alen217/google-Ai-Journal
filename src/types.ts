@@ -45,6 +45,67 @@ export interface ReflectionDoc {
   summary?: string;
   actionItems?: string[];
   keyEmotions?: string[];
+  // Creative Scrapbook / Journal Page Layout
+  scrapbook?: ScrapbookLayout;
+}
+
+export type PaperStyle = 
+  | "cream_linen"
+  | "ruled_notebook"
+  | "dot_grid"
+  | "kraft_paper"
+  | "soft_rose"
+  | "vintage_parchment"
+  | "midnight_journal"
+  | "sage_meadow";
+
+export type JournalFontFamily =
+  | "Newsreader"
+  | "Kalam"
+  | "Caveat"
+  | "Courier Prime"
+  | "Plus Jakarta Sans"
+  | "Playfair Display";
+
+export type ScrapbookElementType = "text" | "image" | "sticker" | "tape" | "ai_card";
+
+export interface ScrapbookElement {
+  id: string;
+  type: ScrapbookElementType;
+  x: number;             // X position (px or % of canvas)
+  y: number;             // Y position (px or % of canvas)
+  width: number;          // width in px
+  height: number;         // height in px
+  rotation: number;       // degrees (-180 to 180)
+  zIndex: number;         // layer
+  // Content
+  content?: string;       // Text content or sticker symbol
+  imageUrl?: string;      // Image data URL or source
+  caption?: string;       // Polaroid caption
+  // Typography & Styling
+  fontFamily?: JournalFontFamily;
+  fontSize?: number;      // px
+  fontWeight?: "normal" | "bold";
+  fontStyle?: "normal" | "italic";
+  textDecoration?: "none" | "underline";
+  textAlign?: "left" | "center" | "right";
+  color?: string;         // Text color
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  borderRadius?: number;
+  photoStyle?: "polaroid" | "tape" | "pin" | "border" | "clean";
+  tapeColor?: string;
+  opacity?: number;
+}
+
+export interface ScrapbookLayout {
+  templateId?: string;
+  paperStyle: PaperStyle;
+  paperColor?: string;
+  elements: ScrapbookElement[];
+  canvasWidth: number;
+  canvasHeight: number;
 }
 
 export interface UserProfile {
