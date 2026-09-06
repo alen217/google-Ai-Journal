@@ -29,6 +29,36 @@ service cloud.firestore {
       match /calendarItems/{itemId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      // User objectives / goals subcollection
+      match /objectives/{objectiveId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // User reminders subcollection
+      match /reminders/{reminderId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // User future notes subcollection
+      match /futureNotes/{noteId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Visual AI Scrapbook pages subcollection
+      match /scrapbooks/{scrapbookId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // User Life Graph entities subcollection
+      match /lifeGraphEntities/{entityId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // User Life Graph relationships subcollection
+      match /lifeGraphRelationships/{relationshipId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
   }
 }

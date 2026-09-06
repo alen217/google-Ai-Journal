@@ -27,7 +27,10 @@ import {
   ZoomIn, 
   ZoomOut,
   Layers,
-  ChevronDown
+  ChevronDown,
+  Lock,
+  Unlock,
+  Quote
 } from "lucide-react";
 
 interface ScrapbookCanvasProps {
@@ -100,6 +103,39 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
   const selectedElement = layout.elements.find((el) => el.id === selectedId) || null;
   const paperMeta = PAPER_STYLES.find((p) => p.id === layout.paperStyle) || PAPER_STYLES[0];
 
+  // Keyboard shortcuts (Delete, Esc, Duplicate, Undo, Redo)
+  useEffect(() => {
+    if (readOnly) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === "textarea" || activeTag === "input") return;
+
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
+        e.preventDefault();
+        handleDelete(selectedId);
+      } else if (e.key === "Escape") {
+        setSelectedId(null);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d" && selectedId) {
+        e.preventDefault();
+        handleDuplicate(selectedId);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        if (e.shiftKey) {
+          if (onRedo && canRedo) {
+            e.preventDefault();
+            onRedo();
+          }
+        } else {
+          if (onUndo && canUndo) {
+            e.preventDefault();
+            onUndo();
+          }
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [readOnly, selectedId, canUndo, canRedo, onUndo, onRedo]);
+
   // -------------------------------------------------------------
   // Pointer & Touch Handlers
   // -------------------------------------------------------------
@@ -113,6 +149,8 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
 
     // Select this element
     setSelectedId(element.id);
+
+    if (element.locked) return; // Locked elements cannot be dragged
 
     if (!canvasRef.current) return;
     const canvasRect = canvasRef.current.getBoundingClientRect();
@@ -141,6 +179,7 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
     element: ScrapbookElement
   ) => {
     if (readOnly) return;
+    if (element.locked) return;
     e.stopPropagation();
 
     if (!canvasRef.current) return;
@@ -170,6 +209,7 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
     element: ScrapbookElement
   ) => {
     if (readOnly) return;
+    if (element.locked) return;
     e.stopPropagation();
 
     if (!canvasRef.current) return;
@@ -428,6 +468,15 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
           backgroundImage: `radial-gradient(#94a3b8 1.2px, transparent 1.2px)`,
           backgroundSize: "24px 24px",
         };
+      case "grid_graph":
+        return {
+          backgroundColor: baseColor,
+          backgroundImage: `
+            linear-gradient(to right, rgba(14, 165, 233, 0.15) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(14, 165, 233, 0.15) 1px, transparent 1px)
+          `,
+          backgroundSize: "20px 20px",
+        };
       case "kraft_paper":
         return {
           backgroundColor: baseColor,
@@ -449,6 +498,15 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
           backgroundColor: baseColor,
           backgroundImage: `radial-gradient(circle at 80% 10%, rgba(251, 207, 232, 0.35) 0%, transparent 60%)`,
         };
+      case "watercolor_blush":
+        return {
+          backgroundColor: baseColor,
+          backgroundImage: `
+            radial-gradient(circle at 15% 20%, rgba(244, 114, 182, 0.18) 0%, transparent 50%),
+            radial-gradient(circle at 85% 80%, rgba(251, 146, 60, 0.15) 0%, transparent 55%),
+            radial-gradient(circle at 50% 50%, rgba(253, 230, 138, 0.12) 0%, transparent 70%)
+          `,
+        };
       case "vintage_parchment":
         return {
           backgroundColor: baseColor,
@@ -457,10 +515,28 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
             repeating-linear-gradient(60deg, rgba(0,0,0,0.01) 0px, rgba(0,0,0,0.01) 2px, transparent 2px, transparent 6px)
           `,
         };
+      case "stained_aged":
+        return {
+          backgroundColor: baseColor,
+          backgroundImage: `
+            radial-gradient(circle at 75% 25%, rgba(120, 53, 15, 0.18) 0%, rgba(120, 53, 15, 0.08) 18px, transparent 45px),
+            radial-gradient(circle at 20% 70%, rgba(180, 83, 9, 0.12) 0%, transparent 50%),
+            radial-gradient(ellipse at center, rgba(160, 110, 60, 0.12) 0%, rgba(120, 80, 40, 0.25) 100%)
+          `,
+        };
       case "sage_meadow":
         return {
           backgroundColor: baseColor,
           backgroundImage: `radial-gradient(circle at 20% 80%, rgba(167, 243, 208, 0.25) 0%, transparent 60%)`,
+        };
+      case "retro_film":
+        return {
+          backgroundColor: baseColor,
+          backgroundImage: `
+            radial-gradient(circle at 50% 30%, rgba(249, 115, 22, 0.08) 0%, transparent 70%),
+            radial-gradient(circle at 80% 80%, rgba(234, 88, 12, 0.06) 0%, transparent 50%),
+            repeating-linear-gradient(0deg, rgba(0,0,0,0.015) 0px, rgba(0,0,0,0.015) 1px, transparent 1px, transparent 3px)
+          `,
         };
       case "midnight_journal":
         return {
@@ -757,6 +833,58 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
                 )}
 
                 {/* ------------------------------------------------------------- */}
+                {/* 6. POSTAL / DIARY STAMP                                      */}
+                {/* ------------------------------------------------------------- */}
+                {el.type === "stamp" && (
+                  <div
+                    style={{
+                      color: el.stampColor || "#b91c1c",
+                      borderColor: el.stampColor || "#b91c1c",
+                    }}
+                    className={`w-full h-full p-2 flex flex-col items-center justify-center select-none font-mono uppercase tracking-widest text-center shadow-xs transition-transform ${
+                      el.stampVariant === "circle"
+                        ? "rounded-full border-2 border-dashed border-current aspect-square"
+                        : "rounded-md border-2 border-dashed border-current"
+                    }`}
+                  >
+                    <div className="text-[10px] opacity-75 leading-tight font-bold">
+                      ★ SCRAPBOOK ★
+                    </div>
+                    <div className="font-extrabold text-xs tracking-wider border-y border-current my-0.5 py-0.5 w-full text-center truncate">
+                      {el.stampText || el.content || "RECORDED"}
+                    </div>
+                    <div className="text-[9px] opacity-70 tracking-tight">
+                      AUTHENTIC ENTRY
+                    </div>
+                  </div>
+                )}
+
+                {/* ------------------------------------------------------------- */}
+                {/* 7. ELEGANT QUOTE CARD                                        */}
+                {/* ------------------------------------------------------------- */}
+                {el.type === "quote_card" && (
+                  <div
+                    style={{
+                      backgroundColor: el.backgroundColor || "#fef9c3",
+                      borderColor: el.borderColor || "#fef08a",
+                      color: el.color || "#78350f",
+                      fontFamily: fontObj.cssFamily,
+                    }}
+                    className="w-full h-full p-3.5 rounded-xl border shadow-sm relative leading-relaxed flex flex-col justify-between overflow-hidden"
+                  >
+                    <div className="text-2xl font-serif leading-none opacity-30 select-none -mb-1">
+                      “
+                    </div>
+                    <div className="text-xs sm:text-sm italic font-medium px-1 line-clamp-4">
+                      {el.content || "Every moment is a fresh beginning."}
+                    </div>
+                    <div className="text-right text-[11px] font-bold tracking-wider uppercase opacity-75 mt-1.5 truncate">
+                      — {el.caption || "Mindful Reflection"}
+                    </div>
+                  </div>
+                )}
+
+                {/* ------------------------------------------------------------- */}
                 {/* SELECTION HANDLES & ROTATION HANDLE (Shown only when selected) */}
                 {/* ------------------------------------------------------------- */}
                 {isSelected && (
@@ -792,6 +920,17 @@ export const ScrapbookCanvas: React.FC<ScrapbookCanvasProps> = ({
                           <span>Edit Text</span>
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateElement(el.id, { locked: !el.locked })}
+                        className={`p-1 rounded hover:bg-stone-800 ${
+                          el.locked ? "text-amber-400" : "text-stone-300 hover:text-white"
+                        }`}
+                        title={el.locked ? "Unlock element position" : "Lock element position"}
+                      >
+                        {el.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      </button>
 
                       <button
                         type="button"

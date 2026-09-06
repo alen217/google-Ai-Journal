@@ -53,11 +53,15 @@ export type PaperStyle =
   | "cream_linen"
   | "ruled_notebook"
   | "dot_grid"
+  | "grid_graph"
   | "kraft_paper"
   | "soft_rose"
   | "vintage_parchment"
   | "midnight_journal"
-  | "sage_meadow";
+  | "sage_meadow"
+  | "stained_aged"
+  | "watercolor_blush"
+  | "retro_film";
 
 export type JournalFontFamily =
   | "Newsreader"
@@ -67,7 +71,7 @@ export type JournalFontFamily =
   | "Plus Jakarta Sans"
   | "Playfair Display";
 
-export type ScrapbookElementType = "text" | "image" | "sticker" | "tape" | "ai_card";
+export type ScrapbookElementType = "text" | "image" | "sticker" | "tape" | "ai_card" | "stamp" | "quote_card" | "badge";
 
 export interface ScrapbookElement {
   id: string;
@@ -78,10 +82,17 @@ export interface ScrapbookElement {
   height: number;         // height in px
   rotation: number;       // degrees (-180 to 180)
   zIndex: number;         // layer
+  locked?: boolean;       // prevent accidental drags
   // Content
   content?: string;       // Text content or sticker symbol
   imageUrl?: string;      // Image data URL or source
   caption?: string;       // Polaroid caption
+  // Stamp specific
+  stampText?: string;
+  stampColor?: string;
+  stampVariant?: "circle" | "rect" | "badge";
+  // Card specific
+  cardVariant?: "sticky" | "quote" | "torn" | "pinned" | "highlight";
   // Typography & Styling
   fontFamily?: JournalFontFamily;
   fontSize?: number;      // px
@@ -97,6 +108,19 @@ export interface ScrapbookElement {
   photoStyle?: "polaroid" | "tape" | "pin" | "border" | "clean";
   tapeColor?: string;
   opacity?: number;
+  style?: Record<string, any>;
+}
+
+export interface AIDesignSuggestion {
+  templateId: string;
+  themeName: string;
+  paperStyle: PaperStyle;
+  primaryFont: JournalFontFamily;
+  suggestedMood: MoodType;
+  accentColor: string;
+  designRationale: string;
+  stickers: string[];
+  washiTapeBg: string;
 }
 
 export interface ScrapbookLayout {
@@ -107,6 +131,30 @@ export interface ScrapbookLayout {
   canvasWidth: number;
   canvasHeight: number;
 }
+
+export interface PrivacyAISettings {
+  aiAnalysisEnabled: boolean;       // Master toggle: Analyze my journal with AI
+  smartTaskDetection: boolean;      // Smart task detection
+  aiSummaries: boolean;             // AI summaries
+  weeklyInsights: boolean;          // Weekly insights
+  journalSearch: boolean;           // Journal search
+  moodSentimentInsights: boolean;   // Mood/sentiment insights
+  futureSelfSuggestions: boolean;   // Future Self suggestions
+  lifeGraphEnabled: boolean;        // Interconnected knowledge graph
+  aiScrapbookEnabled: boolean;      // Visual memory scrapbook generation
+}
+
+export const DEFAULT_PRIVACY_AI_SETTINGS: PrivacyAISettings = {
+  aiAnalysisEnabled: true,
+  smartTaskDetection: true,
+  aiSummaries: true,
+  weeklyInsights: true,
+  journalSearch: true,
+  moodSentimentInsights: true,
+  futureSelfSuggestions: true,
+  lifeGraphEnabled: true,
+  aiScrapbookEnabled: true,
+};
 
 export interface UserProfile {
   uid: string;
@@ -119,6 +167,7 @@ export interface UserProfile {
   totalEntries: number;
   e2eeEnabled: boolean;
   salt?: string;
+  privacyAISettings?: PrivacyAISettings;
   createdAt: string;
   updatedAt: string;
 }
@@ -132,7 +181,16 @@ export interface StreakMilestone {
   unlocked: boolean;
 }
 
-export type AppView = "dashboard" | "new_journal" | "history" | "analytics" | "insights";
+export type AppView =
+  | "dashboard"
+  | "new_journal"
+  | "history"
+  | "analytics"
+  | "insights"
+  | "unfinished"
+  | "privacy"
+  | "scrapbook"
+  | "lifegraph";
 
 export type TextRefineMode = "auto_correct" | "fix_grammar_spelling" | "polish_flow" | "punctuate_speech";
 
@@ -299,4 +357,255 @@ export interface SavedCalendarEvent {
   status: "confirmed" | "synced";
   createdAt: string;
 }
+
+export type ObjectivePriority = "low" | "medium" | "high";
+export type ObjectiveStatus = "not_started" | "in_progress" | "completed";
+
+export interface ObjectiveReminder {
+  date?: string;
+  time?: string;
+  enabled: boolean;
+  notes?: string;
+}
+
+export interface ObjectiveItem {
+  id: string;
+  userId: string;
+  title: string;
+  description?: string;
+  deadline?: string; // YYYY-MM-DD
+  priority: ObjectivePriority;
+  progress: number; // 0 to 100
+  status: ObjectiveStatus;
+  reminder?: ObjectiveReminder;
+  sourceReflectionId?: string;
+  sourceReflectionTitle?: string;
+  sourceSentence?: string; // Snippet to highlight in original journal entry
+  isWaiting?: boolean; // Waiting on external person or action
+  waitingOn?: string; // Who or what it is waiting for
+  snoozedUntil?: string; // ISO date YYYY-MM-DD if snoozed
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReminderItem {
+  id: string;
+  userId: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm
+  status: "pending" | "completed" | "dismissed";
+  sourceReflectionId?: string;
+  sourceReflectionTitle?: string;
+  sourceObjectiveId?: string;
+  sourceSentence?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ActionCategory =
+  | "task"
+  | "deadline"
+  | "commitment"
+  | "meeting"
+  | "appointment"
+  | "event"
+  | "goal"
+  | "submission"
+  | "follow_up"
+  | "waiting";
+
+export interface DetectedActionItem {
+  id: string;
+  title: string;
+  category: ActionCategory;
+  date?: string; // YYYY-MM-DD
+  time?: string; // HH:mm
+  relativeDateText?: string; // e.g. "tomorrow", "Monday"
+  isAmbiguousDate?: boolean;
+  clarificationPrompt?: string;
+  suggestedType: "reminder" | "calendar" | "objective";
+  suggestedReminder?: string;
+  confidenceReason?: string;
+  priority?: ObjectivePriority;
+  sourceSentence?: string;
+  isWaiting?: boolean;
+  waitingOn?: string;
+  dismissed?: boolean;
+  isDuplicate?: boolean;
+  savedAsObjectiveId?: string;
+  savedAsReminderId?: string;
+  savedAsCalendarId?: string;
+}
+
+export interface FutureNote {
+  id: string;
+  userId: string;
+  message: string;
+  targetDate?: string; // YYYY-MM-DD or empty for someday
+  sourceReflectionId?: string;
+  sourceReflectionTitle?: string;
+  sourceSentence?: string;
+  status: "pending" | "delivered" | "read" | "archived";
+  readAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActionItemExtractionResult {
+  detectedItems: DetectedActionItem[];
+  rationale: string;
+  modelUsed?: string;
+}
+
+// -------------------------------------------------------------
+// 1. AI SCRAPBOOK TYPES & DATA MODELS
+// -------------------------------------------------------------
+
+export type ScrapbookTemplateId =
+  | "classic"
+  | "photo_story"
+  | "travel"
+  | "achievement"
+  | "personal"
+  | "celebration"
+  | "idea_board"
+  | "project_diary";
+
+export type MemoryCategory = "travel" | "achievement" | "personal" | "celebration" | "general";
+
+export interface ScrapbookMemoryMetadata {
+  mainEvent?: string;
+  date?: string;
+  location?: string;
+  peopleMentioned?: string[];
+  importantMoments?: string[];
+  mood?: string;
+  keyQuotes?: string[];
+  photos?: string[];
+  activities?: string[];
+  highlights?: string[];
+  whatILearned?: string;
+  progressPercent?: number;
+  favoriteMoment?: string;
+  relatedReflectionIds?: string[];
+}
+
+export interface ScrapbookSuggestion {
+  id: string;
+  type: "add_moment" | "collage" | "add_location" | "add_quote" | "connect_graph";
+  label: string;
+  description: string;
+  applied: boolean;
+  element?: Partial<ScrapbookElement>;
+}
+
+export interface ScrapbookDoc {
+  id: string;
+  userId: string;
+  sourceReflectionId: string;
+  sourceReflectionTitle?: string;
+  title: string;
+  date: string;
+  template: ScrapbookTemplateId;
+  memoryType: MemoryCategory;
+  paperStyle: PaperStyle;
+  paperColor?: string;
+  elements: ScrapbookElement[];
+  metadata: ScrapbookMemoryMetadata;
+  lifeGraphNodeIds: string[];
+  aiSuggestions: ScrapbookSuggestion[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// -------------------------------------------------------------
+// 2. LIFE GRAPH TYPES & DATA MODELS
+// -------------------------------------------------------------
+
+export type LifeGraphEntityType =
+  | "project"
+  | "person"
+  | "place"
+  | "goal"
+  | "objective"
+  | "event"
+  | "topic"
+  | "hobby"
+  | "idea"
+  | "achievement"
+  | "memory";
+
+export interface EvolutionMilestone {
+  date: string;
+  monthLabel?: string;
+  stage: string;
+  note: string;
+  event?: string;
+  reflectionId?: string;
+  reflectionTitle?: string;
+}
+
+export interface LifeGraphEntity {
+  id: string;
+  userId: string;
+  name: string;
+  type: LifeGraphEntityType;
+  description?: string;
+  firstMentionedDate: string;
+  lastMentionedDate: string;
+  reflectionIds: string[];
+  objectiveIds?: string[];
+  relatedPeople?: string[];
+  relatedTopics?: string[];
+  evolutionTimeline?: EvolutionMilestone[];
+  stats: {
+    entryCount: number;
+    totalOccurrences?: number;
+    objectiveCount?: number;
+    completedObjectives?: number;
+    peopleCount?: number;
+  };
+  color?: string;
+  userEdited?: boolean;
+  isUserHidden?: boolean;
+  isArchived?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LifeGraphRelationship {
+  id: string;
+  userId: string;
+  sourceEntityId: string;
+  targetEntityId: string;
+  label: string;
+  type: "inferred" | "verified";
+  strength: number; // 1 to 5
+  reflectionIds: string[];
+  createdAt: string;
+}
+
+export interface DiscoveredConnection {
+  id: string;
+  title: string;
+  description: string;
+  entityIds: string[];
+  entityNames: string[];
+  reflectionIds: string[];
+  insightType: "pattern" | "journey" | "frequency" | "collaboration";
+  date: string;
+}
+
+export interface LifeGraphSearchResult {
+  query: string;
+  answer: string;
+  matchingEntityIds: string[];
+  matchingReflectionIds: string[];
+  citations: { reflectionId: string; title: string; excerpt: string }[];
+  suggestedNodes: string[];
+}
+
+export type LifeGraphQueryResult = LifeGraphSearchResult;
 

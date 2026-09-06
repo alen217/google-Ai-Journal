@@ -68,6 +68,113 @@
         "status": { "type": "string", "description": "confirmed | synced | cancelled" },
         "createdAt": { "type": "string", "description": "ISO timestamp" }
       }
+    },
+    "Objective": {
+      "collection": "users/{userId}/objectives",
+      "fields": {
+        "id": { "type": "string", "description": "Unique objective ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "title": { "type": "string", "description": "Objective title" },
+        "description": { "type": "string", "description": "Objective description or notes" },
+        "deadline": { "type": "string", "description": "Optional deadline YYYY-MM-DD" },
+        "priority": { "type": "string", "description": "low | medium | high" },
+        "progress": { "type": "number", "description": "Progress percentage 0-100" },
+        "status": { "type": "string", "description": "not_started | in_progress | completed" },
+        "reminder": { "type": "object", "description": "Reminder settings: { date, time, enabled, notes }" },
+        "sourceReflectionId": { "type": "string", "description": "Associated journal reflection ID" },
+        "sourceReflectionTitle": { "type": "string", "description": "Title of the journal entry" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "Reminder": {
+      "collection": "users/{userId}/reminders",
+      "fields": {
+        "id": { "type": "string", "description": "Unique reminder ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "title": { "type": "string", "description": "Reminder title" },
+        "date": { "type": "string", "description": "YYYY-MM-DD" },
+        "time": { "type": "string", "description": "HH:mm or null" },
+        "status": { "type": "string", "description": "pending | completed | dismissed" },
+        "sourceReflectionId": { "type": "string", "description": "Associated journal reflection ID" },
+        "sourceReflectionTitle": { "type": "string", "description": "Associated reflection title" },
+        "notes": { "type": "string", "description": "Reminder details" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "FutureNote": {
+      "collection": "users/{userId}/futureNotes",
+      "fields": {
+        "id": { "type": "string", "description": "Unique future note ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "message": { "type": "string", "description": "Personal note left for future self" },
+        "targetDate": { "type": "string", "description": "YYYY-MM-DD or empty if someday" },
+        "sourceReflectionId": { "type": "string", "description": "Associated reflection ID" },
+        "sourceReflectionTitle": { "type": "string", "description": "Associated reflection title" },
+        "sourceSentence": { "type": "string", "description": "Original sentence for highlight" },
+        "status": { "type": "string", "description": "pending | delivered | read | archived" },
+        "readAt": { "type": "string", "description": "ISO timestamp when read" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "Scrapbook": {
+      "collection": "users/{userId}/scrapbooks",
+      "fields": {
+        "id": { "type": "string", "description": "Unique scrapbook ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "sourceReflectionId": { "type": "string", "description": "Associated journal reflection ID" },
+        "sourceReflectionTitle": { "type": "string", "description": "Title of original reflection" },
+        "title": { "type": "string", "description": "Title of scrapbook page" },
+        "date": { "type": "string", "description": "YYYY-MM-DD" },
+        "template": { "type": "string", "description": "classic | photo_story | travel | achievement | personal | celebration | idea_board | project_diary" },
+        "memoryType": { "type": "string", "description": "travel | achievement | personal | celebration | general" },
+        "background": { "type": "object", "description": "Background texture/color configuration" },
+        "elements": { "type": "array", "description": "Visual elements array (text, photos, stickers, tapes, badges)" },
+        "metadata": { "type": "object", "description": "Extracted memory metadata (location, people, quotes, highlights)" },
+        "lifeGraphNodeIds": { "type": "array", "description": "Linked Life Graph entity IDs" },
+        "aiSuggestions": { "type": "array", "description": "Suggested enhancements from AI" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "LifeGraphEntity": {
+      "collection": "users/{userId}/lifeGraphEntities",
+      "fields": {
+        "id": { "type": "string", "description": "Unique entity ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "name": { "type": "string", "description": "Entity name e.g. AI Journal, Kochi, John" },
+        "type": { "type": "string", "description": "project | person | place | goal | objective | event | topic | hobby | idea | achievement | memory" },
+        "description": { "type": "string", "description": "Summary description" },
+        "firstMentionedDate": { "type": "string", "description": "Date first appeared in reflections" },
+        "lastMentionedDate": { "type": "string", "description": "Most recent reflection date" },
+        "reflectionIds": { "type": "array", "description": "List of reflection IDs referencing this entity" },
+        "objectiveIds": { "type": "array", "description": "Connected objective IDs" },
+        "relatedPeople": { "type": "array", "description": "People connected with this entity" },
+        "relatedTopics": { "type": "array", "description": "Topics connected with this entity" },
+        "evolutionTimeline": { "type": "array", "description": "Milestones [{ date, monthLabel, stage, note, reflectionId }]" },
+        "stats": { "type": "object", "description": "Counts: entryCount, objectiveCount, completedObjectives, peopleCount" },
+        "color": { "type": "string", "description": "Visual node color hex/class" },
+        "userEdited": { "type": "boolean", "description": "Whether user customized this entity" },
+        "isUserHidden": { "type": "boolean", "description": "Whether user hid this entity from graph" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "LifeGraphRelationship": {
+      "collection": "users/{userId}/lifeGraphRelationships",
+      "fields": {
+        "id": { "type": "string", "description": "Unique relationship ID" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "sourceEntityId": { "type": "string", "description": "Source entity ID" },
+        "targetEntityId": { "type": "string", "description": "Target entity ID" },
+        "label": { "type": "string", "description": "Relationship label e.g. works on, visited, sub-goal of" },
+        "type": { "type": "string", "description": "inferred | verified" },
+        "strength": { "type": "number", "description": "Connection weight 1-5" },
+        "reflectionIds": { "type": "array", "description": "Reflections evidencing this relationship" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" }
+      }
     }
   }
 }

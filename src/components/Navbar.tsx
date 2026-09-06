@@ -9,7 +9,11 @@ import {
   BarChart3, 
   PlusCircle, 
   LogOut, 
-  User as UserIcon 
+  User as UserIcon,
+  CheckCircle2,
+  SlidersHorizontal,
+  Palette,
+  Share2
 } from "lucide-react";
 
 interface NavbarProps {
@@ -18,6 +22,7 @@ interface NavbarProps {
   userProfile: UserProfile | null;
   onSignOut: () => void;
   onOpenEncryptionSettings: () => void;
+  onOpenPrivacySettings?: () => void;
   isEncryptedUnlocked: boolean;
 }
 
@@ -27,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   userProfile,
   onSignOut,
   onOpenEncryptionSettings,
+  onOpenPrivacySettings,
   isEncryptedUnlocked,
 }) => {
   return (
@@ -80,6 +86,30 @@ export const Navbar: React.FC<NavbarProps> = ({
               Past Entries
             </button>
             <button
+              id="nav-scrapbook-tab"
+              onClick={() => setCurrentView("scrapbook")}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                currentView === "scrapbook"
+                  ? "bg-stone-800 text-amber-300 shadow-inner"
+                  : "text-stone-300 hover:text-stone-100 hover:bg-stone-800/60"
+              }`}
+            >
+              <Palette className="w-4 h-4 text-amber-400" />
+              Scrapbook
+            </button>
+            <button
+              id="nav-lifegraph-tab"
+              onClick={() => setCurrentView("lifegraph")}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                currentView === "lifegraph"
+                  ? "bg-stone-800 text-amber-300 shadow-inner"
+                  : "text-stone-300 hover:text-stone-100 hover:bg-stone-800/60"
+              }`}
+            >
+              <Share2 className="w-4 h-4 text-indigo-400" />
+              Life Graph
+            </button>
+            <button
               id="nav-analytics-tab"
               onClick={() => setCurrentView("analytics")}
               className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
@@ -102,6 +132,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Sparkles className="w-4 h-4 text-amber-400" />
               AI Insights & Calendar
+            </button>
+            <button
+              id="nav-unfinished-tab"
+              onClick={() => setCurrentView("unfinished")}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                currentView === "unfinished"
+                  ? "bg-stone-800 text-amber-300 shadow-inner"
+                  : "text-stone-300 hover:text-stone-100 hover:bg-stone-800/60"
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4 text-rose-400" />
+              Unfinished
             </button>
           </nav>
         </div>
@@ -130,6 +172,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>{userProfile?.currentStreak || 0}</span>
             <span className="text-stone-400 text-[11px] hidden sm:inline">days</span>
           </div>
+
+          {/* Privacy & AI Controls Button */}
+          {onOpenPrivacySettings && (
+            <button
+              id="nav-privacy-settings-btn"
+              onClick={onOpenPrivacySettings}
+              title="Privacy & AI Controls"
+              className="p-1.5 rounded-lg border border-stone-700 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-amber-300 text-xs font-medium flex items-center gap-1 transition-colors"
+            >
+              <SlidersHorizontal className="w-4 h-4 text-amber-400" />
+              <span className="hidden xl:inline text-[11px]">Privacy & AI</span>
+            </button>
+          )}
 
           {/* E2EE Security Status Button */}
           <button
@@ -201,10 +256,10 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Mobile Subnav */}
-      <div className="md:hidden flex border-t border-stone-800 bg-stone-900/95 px-3 py-1.5 justify-around text-xs">
+      <div className="md:hidden flex border-t border-stone-800 bg-stone-900/95 px-2 py-1.5 justify-around text-xs overflow-x-auto gap-1">
         <button
           onClick={() => setCurrentView("dashboard")}
-          className={`px-3 py-1 rounded-md font-medium ${
+          className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${
             currentView === "dashboard" ? "text-amber-300 bg-stone-800" : "text-stone-400"
           }`}
         >
@@ -212,27 +267,51 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
         <button
           onClick={() => setCurrentView("history")}
-          className={`px-3 py-1 rounded-md font-medium ${
+          className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${
             currentView === "history" ? "text-amber-300 bg-stone-800" : "text-stone-400"
           }`}
         >
-          Past Entries
+          Entries
+        </button>
+        <button
+          onClick={() => setCurrentView("scrapbook")}
+          className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${
+            currentView === "scrapbook" ? "text-amber-300 bg-stone-800" : "text-stone-400"
+          }`}
+        >
+          Scrapbook
+        </button>
+        <button
+          onClick={() => setCurrentView("lifegraph")}
+          className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${
+            currentView === "lifegraph" ? "text-amber-300 bg-stone-800" : "text-stone-400"
+          }`}
+        >
+          Graph
         </button>
         <button
           onClick={() => setCurrentView("analytics")}
-          className={`px-3 py-1 rounded-md font-medium ${
+          className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${
             currentView === "analytics" ? "text-amber-300 bg-stone-800" : "text-stone-400"
           }`}
         >
-          Mood & Streaks
+          Mood
         </button>
         <button
           onClick={() => setCurrentView("insights")}
-          className={`px-3 py-1 rounded-md font-medium ${
+          className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${
             currentView === "insights" ? "text-amber-300 bg-stone-800" : "text-stone-400"
           }`}
         >
-          AI Insights
+          Insights
+        </button>
+        <button
+          onClick={() => setCurrentView("unfinished")}
+          className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${
+            currentView === "unfinished" ? "text-amber-300 bg-stone-800" : "text-stone-400"
+          }`}
+        >
+          Unfinished
         </button>
       </div>
     </header>

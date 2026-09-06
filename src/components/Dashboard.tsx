@@ -1,11 +1,12 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   ReflectionDoc, 
   UserProfile, 
   MoodType, 
   AppView, 
   AIServiceMode, 
-  JournalMessage 
+  JournalMessage,
+  FutureNote
 } from "../types";
 import { 
   MOODS, 
@@ -13,10 +14,15 @@ import {
 } from "../lib/constants";
 import { 
   persistReflection, 
-  getTodayDateString 
+  getTodayDateString,
+  fetchUserObjectives,
+  fetchUserReminders 
 } from "../lib/firebase";
+import { fetchDueFutureNotes } from "../lib/futureSelfService";
 import { encryptPayload } from "../lib/encryption";
 import { VoiceDictationBar } from "./VoiceDictationBar";
+import { ActiveObjectivesWidget } from "./ActiveObjectivesWidget";
+import { PastSelfMessageCard } from "./PastSelfMessageCard";
 import { 
   Sparkles, 
   Flame, 
@@ -55,7 +61,7 @@ interface DashboardProps {
   userProfile: UserProfile;
   reflections: ReflectionDoc[];
   onStartNewReflection: (starterPrompt?: string, mood?: MoodType) => void;
-  onOpenReflection: (doc: ReflectionDoc) => void;
+  onOpenReflection: (doc: ReflectionDoc, highlightSentence?: string) => void;
   onNavigate: (view: AppView) => void;
   onOpenEncryptionSettings: () => void;
   isEncryptedUnlocked: boolean;
@@ -99,6 +105,73 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [composerError, setComposerError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Future Self and Unfinished items overview state
+  const [dueFutureNotes, setDueFutureNotes] = useState<FutureNote[]>([]);
+  const [unfinishedStats, setUnfinishedStats] = useState<{
+    dueSoon: number;
+    inProgress: number;
+    waiting: number;
+    noDeadline: number;
+  }>({ dueSoon: 0, inProgress: 0, waiting: 0, noDeadline: 0 });
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadOverviewData = async () => {
+      try {
+        const [futureNotes, objs, rems] = await Promise.all([
+          fetchDueFutureNotes(userProfile.uid),
+          fetchUserObjectives(userProfile.uid),
+          fetchUserReminders(userProfile.uid),
+        ]);
+
+        if (!isMounted) return;
+
+        setDueFutureNotes(futureNotes);
+
+        const soonThreshold = new Date();
+        soonThreshold.setDate(soonThreshold.getDate() + 3);
+        const soonStr = soonThreshold.toISOString().slice(0, 10);
+
+        let dueSoonCount = 0;
+        let inProgressCount = 0;
+        let waitingCount = 0;
+        let noDeadlineCount = 0;
+
+        for (const o of objs) {
+          if (o.status === "completed") continue;
+          if (o.isWaiting) waitingCount++;
+          if (o.deadline) {
+            if (o.deadline <= soonStr) dueSoonCount++;
+          } else {
+            noDeadlineCount++;
+          }
+          if (o.status === "in_progress" || (o.progress > 0 && o.progress < 100)) {
+            inProgressCount++;
+          }
+        }
+
+        for (const r of rems) {
+          if (r.status === "completed") continue;
+          if (r.date && r.date <= soonStr) dueSoonCount++;
+        }
+
+        setUnfinishedStats({
+          dueSoon: dueSoonCount,
+          inProgress: inProgressCount,
+          waiting: waitingCount,
+          noDeadline: noDeadlineCount,
+        });
+      } catch (err) {
+        console.warn("Could not load overview data:", err);
+      }
+    };
+
+    loadOverviewData();
+    return () => {
+      isMounted = false;
+    };
+  }, [userProfile.uid, reflections.length]);
 
   // -------------------------------------------------------------
   // 2. VISUAL DETAILS & FILTER STATE
@@ -229,6 +302,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
+  };
+
+  const handleVoiceTranscript = (transcript: string) => {
+    console.log("[VOICE] Parent transcript handler invoked");
+    console.log("[VOICE] Journal state update requested");
+    console.log("[VOICE] Journal editor update requested");
+    setEntryContent((prev) => {
+      const existing = (prev || "").trim();
+      const spoken = (transcript || "").trim();
+
+      if (!spoken) {
+        return prev;
+      }
+
+      console.log("[VOICE] Journal state updated");
+      if (!existing) {
+        return spoken;
+      }
+
+      return `${existing}\n\n${spoken}`;
+    });
   };
 
   // Trigger Gemini AI Reflection
@@ -492,6 +586,88 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
+        {/* Past Self Message Notice (When Due) */}
+        {dueFutureNotes.length > 0 && (
+          <div className="space-y-3 animate-fade-in" id="dashboard-due-future-notes">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-amber-600" />
+                A message from your past self has arrived
+              </span>
+              <span className="text-xs text-stone-500 font-medium">
+                {dueFutureNotes.length} {dueFutureNotes.length === 1 ? "note" : "notes"} ready
+              </span>
+            </div>
+
+            <PastSelfMessageCard
+              notes={dueFutureNotes}
+              userId={userProfile.uid}
+              onNoteUpdated={() => {
+                setDueFutureNotes([]);
+              }}
+              onOpenReflection={(id, sentence) => {
+                const doc = reflections.find((r) => r.id === id);
+                if (doc) onOpenReflection(doc, sentence);
+              }}
+            />
+          </div>
+        )}
+
+        {/* At-A-Glance Status / Overview Card */}
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-50/70 via-stone-50 to-orange-50/50 border border-amber-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <h3 className="text-sm font-bold text-stone-900 font-['Plus_Jakarta_Sans']">
+                Your Journal at a Glance
+              </h3>
+            </div>
+            <p className="text-xs text-stone-500 max-w-md">
+              Gently organized from your recent journal reflections and commitments.
+            </p>
+          </div>
+
+          {/* Quick Metrics Pills */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => onNavigate("unfinished")}
+              className="px-3 py-1.5 rounded-xl bg-white hover:bg-rose-50 border border-stone-200 hover:border-rose-300 text-xs font-semibold flex items-center gap-1.5 text-stone-700 shadow-2xs transition-all active:scale-95"
+              title="View items due soon"
+            >
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>{unfinishedStats.dueSoon} Due Soon</span>
+            </button>
+
+            <button
+              onClick={() => onNavigate("unfinished")}
+              className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-50 border border-stone-200 hover:border-amber-300 text-xs font-semibold flex items-center gap-1.5 text-stone-700 shadow-2xs transition-all active:scale-95"
+              title="View in-progress objectives"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <span>{unfinishedStats.inProgress} In Progress</span>
+            </button>
+
+            {unfinishedStats.waiting > 0 && (
+              <button
+                onClick={() => onNavigate("unfinished")}
+                className="px-3 py-1.5 rounded-xl bg-white hover:bg-blue-50 border border-stone-200 hover:border-blue-300 text-xs font-semibold flex items-center gap-1.5 text-stone-700 shadow-2xs transition-all active:scale-95"
+                title="View waiting items"
+              >
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                <span>{unfinishedStats.waiting} Waiting</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => onNavigate("unfinished")}
+              className="px-3.5 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
+            >
+              <span>View Unfinished Things</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
         {/* Primary Journal Reflection Composer Card */}
         <div className="bg-white rounded-3xl border border-stone-200/90 shadow-sm p-5 sm:p-7 space-y-5 transition-shadow hover:shadow-md">
           
@@ -588,9 +764,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <VoiceDictationBar
             currentText={entryContent}
             onTextChange={setEntryContent}
-            onAppendText={(chunk) => {
-              setEntryContent((prev) => (prev ? `${prev} ${chunk.trim()}` : chunk.trim()));
-            }}
+            onTranscript={handleVoiceTranscript}
             currentMood={MOODS[selectedMood].label}
           />
 
@@ -852,6 +1026,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
+        {/* 🎯 Active Objectives & Commitments Widget */}
+        <ActiveObjectivesWidget
+          userProfile={userProfile}
+          onNavigateToEntry={(id) => {
+            const doc = reflections.find((r) => r.id === id);
+            if (doc) onOpenReflection(doc);
+          }}
+        />
+
         {/* Visual Details Bento Grid */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           
@@ -976,6 +1159,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </button>
           </div>
 
+        </div>
+
+        {/* Feature Spotlight: AI Scrapbook & Personal Life Graph */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Scrapbook Spotlight */}
+          <div
+            onClick={() => onNavigate("scrapbook")}
+            className="p-5 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50/60 border border-amber-200 hover:border-amber-400 cursor-pointer shadow-2xs hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
+          >
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Palette className="w-3.5 h-3.5 text-amber-600" />
+                  Visual Memories
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900">
+                  New
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-stone-900 group-hover:text-amber-900 transition-colors">
+                ✨ AI Memory Scrapbook
+              </h3>
+              <p className="text-xs text-stone-600 leading-relaxed font-['Plus_Jakarta_Sans']">
+                Transform text entries into aesthetic, editable scrapbook pages with polaroids, washi tapes, stickers, and handwritten notes.
+              </p>
+            </div>
+            <div className="flex items-center text-xs font-bold text-amber-800 group-hover:translate-x-1 transition-transform">
+              <span>Open Scrapbook Studio →</span>
+            </div>
+          </div>
+
+          {/* Life Graph Spotlight */}
+          <div
+            onClick={() => onNavigate("lifegraph")}
+            className="p-5 rounded-3xl bg-gradient-to-br from-indigo-50 to-slate-50/60 border border-indigo-200 hover:border-indigo-400 cursor-pointer shadow-2xs hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
+          >
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-indigo-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+                  Knowledge Network
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-200/80 text-indigo-900">
+                  New
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-stone-900 group-hover:text-indigo-900 transition-colors">
+                🌐 Personal Life Graph
+              </h3>
+              <p className="text-xs text-stone-600 leading-relaxed font-['Plus_Jakarta_Sans']">
+                An interconnected map of people, projects, goals, and places across your journal with timeline evolution and natural-language search.
+              </p>
+            </div>
+            <div className="flex items-center text-xs font-bold text-indigo-800 group-hover:translate-x-1 transition-transform">
+              <span>Explore Life Graph →</span>
+            </div>
+          </div>
         </div>
 
         {/* Visual Gallery of Recent Reflections with Filter & Search Options */}

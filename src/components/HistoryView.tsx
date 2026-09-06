@@ -5,8 +5,11 @@ import { MOODS, POPULAR_TAGS } from "../lib/constants";
 import { JOURNAL_TEMPLATES } from "../lib/scrapbookConstants";
 import { ScrapbookCanvas } from "./ScrapbookCanvas";
 import { EntryInsightsSection } from "./EntryInsightsSection";
+import { RelatedActionsView } from "./RelatedActionsView";
+import { SmartCompletionAssistant } from "./SmartCompletionAssistant";
 import { deleteReflectionDoc } from "../lib/firebase";
 import { decryptPayload } from "../lib/encryption";
+import { DeleteConfirmationModal } from "./DeleteConfirmationModal";
 import { 
   Search, 
   Filter, 
@@ -55,6 +58,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [viewMode, setViewMode] = useState<"paper" | "reading">("paper");
   const [decryptedCache, setDecryptedCache] = useState<Record<string, ReflectionDoc>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDeleteDoc, setPendingDeleteDoc] = useState<ReflectionDoc | null>(null);
 
   // Decrypt on demand if encrypted
   const handleInspectDoc = async (doc: ReflectionDoc) => {
@@ -117,22 +121,25 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     };
   };
 
-  // Handle Delete
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this journal reflection? This action cannot be undone.")) {
-      return;
-    }
-    setDeletingId(id);
+  // Open Delete Confirmation Modal
+  const handleOpenDeleteModal = (doc: ReflectionDoc, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPendingDeleteDoc(doc);
+  };
+
+  // Confirm Delete Handler
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteDoc) return;
+    setDeletingId(pendingDeleteDoc.id);
     try {
-      await deleteReflectionDoc(userProfile.uid, id);
-      onDeleteReflection(id);
-      if (activeViewingDoc?.id === id) {
+      await deleteReflectionDoc(userProfile.uid, pendingDeleteDoc.id);
+      onDeleteReflection(pendingDeleteDoc.id);
+      if (activeViewingDoc?.id === pendingDeleteDoc.id) {
         setActiveViewingDoc(null);
       }
+      setPendingDeleteDoc(null);
     } catch (err) {
       console.error("Failed to delete reflection:", err);
-      alert("Failed to delete reflection. Please check your connection.");
     } finally {
       setDeletingId(null);
     }
@@ -361,7 +368,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
                         <button
                           title="Delete Reflection"
-                          onClick={(e) => handleDelete(doc.id, e)}
+                          onClick={(e) => handleOpenDeleteModal(doc, e)}
                           disabled={deletingId === doc.id}
                           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
                         >
@@ -450,6 +457,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
                 {/* Edit in Studio & Close */}
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => handleOpenDeleteModal(activeViewingDoc, e)}
+                    className="px-3 py-1.5 rounded-xl bg-white hover:bg-rose-50 border border-stone-200 hover:border-rose-300 text-rose-700 text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1.5 active:scale-95"
+                    title="Delete this memory"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Delete</span>
+                  </button>
                   <button
                     id="history-continue-chat-btn"
                     onClick={() => onOpenReflection(activeViewingDoc)}
@@ -562,6 +577,28 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 </div>
               )}
 
+              {/* ✨ Related Actions & Objectives from this entry */}
+              <div className="pt-4">
+                <RelatedActionsView
+                  reflection={activeViewingDoc}
+                  userProfile={userProfile}
+                />
+              </div>
+
+              {/* ✨ Smart Post-Entry Assistant (Things to remember) */}
+              <div className="pt-4">
+                <SmartCompletionAssistant
+                  reflection={activeViewingDoc}
+                  userProfile={userProfile}
+                  rawJournalText={
+                    activeViewingDoc.messages
+                      ?.filter((m) => m.role === "user")
+                      .map((m) => m.content)
+                      .join("\n\n") || activeViewingDoc.summary || ""
+                  }
+                />
+              </div>
+
               {/* ✨ Journal Insights & Calendar Assistant */}
               <div className="pt-4">
                 <EntryInsightsSection
@@ -575,6 +612,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={Boolean(pendingDeleteDoc)}
+        onClose={() => setPendingDeleteDoc(null)}
+        onConfirm={handleConfirmDelete}
+        itemTitle={pendingDeleteDoc?.title}
+        isDeleting={Boolean(deletingId)}
+      />
 
     </div>
   );

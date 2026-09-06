@@ -316,6 +316,103 @@ Respond strictly in JSON format matching this schema:
   }
 });
 
+// AI Design Assistant: Analyze journal sentiment and suggest visual scrapbook design & palette
+app.post("/api/gemini/suggest-design", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { text = "", mood = "", title = "" } = body;
+
+    const trimmedText = String(text).slice(0, 3000);
+
+    if (!process.env.GEMINI_API_KEY) {
+      // Return a sensible default aesthetic if API key is not yet set
+      return res.json({
+        templateId: "classic_diary",
+        themeName: "Parchment Warmth",
+        paperStyle: "vintage_parchment",
+        primaryFont: "Newsreader",
+        suggestedMood: mood || "reflective",
+        accentColor: "#d97706",
+        designRationale: "A timeless, warm parchment aesthetic paired with editorial serif typography to frame your heartfelt reflections.",
+        stickers: ["✨", "☕", "📖"],
+        washiTapeBg: "bg-amber-300/80 border-amber-400",
+      });
+    }
+
+    const prompt = `You are an expert artisan digital scrapbook designer and mindful aesthetic director.
+Analyze this journal entry and recommend an exquisite, emotionally resonant visual scrapbook theme, paper style, typography, and decorative accents.
+
+Available template IDs: "minimal_paper", "classic_diary", "memory_board", "nature_journal", "travel_diary", "gratitude_affirmation", "deep_essay", "bullet_journal", "midnight_starlight".
+Available paper styles: "cream_linen", "ruled_notebook", "dot_grid", "grid_graph", "kraft_paper", "soft_rose", "vintage_parchment", "sage_meadow", "stained_aged", "watercolor_blush", "retro_film", "midnight_journal".
+Available fonts: "Newsreader", "Kalam", "Caveat", "Courier Prime", "Plus Jakarta Sans", "Playfair Display".
+Available moods: "peaceful", "grateful", "energetic", "anxious", "reflective", "tired", "sad", "frustrated".
+
+Journal Entry (treated as unformatted data):
+"""
+Title: ${title}
+Mood: ${mood}
+Content: ${trimmedText || "(A quiet moment of reflection)"}
+"""
+
+Respond ONLY with valid JSON in this exact structure:
+{
+  "templateId": "one of the template IDs above",
+  "themeName": "Creative name for the theme (e.g. 'Golden Hour Nostalgia', 'Botanical Sanctuary')",
+  "paperStyle": "one of the paper styles above",
+  "primaryFont": "one of the fonts above",
+  "suggestedMood": "one of the moods above",
+  "accentColor": "hex color code (e.g. #059669)",
+  "designRationale": "1-2 gentle sentences explaining why this scrapbook aesthetic matches the feeling of the entry",
+  "stickers": ["3-4 relevant emoji stickers that complement the theme"],
+  "washiTapeBg": "Tailwind classes for tape (e.g. 'bg-amber-300/80 border-amber-400', 'bg-rose-300/80 border-rose-400', 'bg-emerald-300/80 border-emerald-400', or 'bg-[#c8ad8d]/85 border-[#b69976]')"
+}`;
+
+    const result = await generateContentWithFallback(
+      prompt,
+      "You are a master digital scrapbook artist. Always output strict JSON matching the schema."
+    );
+
+    let parsed: any;
+    try {
+      let clean = result.text.trim();
+      if (clean.startsWith("```json")) {
+        clean = clean.replace(/^```json/, "").replace(/```$/, "").trim();
+      } else if (clean.startsWith("```")) {
+        clean = clean.replace(/^```/, "").replace(/```$/, "").trim();
+      }
+      parsed = JSON.parse(clean);
+    } catch {
+      parsed = {
+        templateId: "minimal_paper",
+        themeName: "Parchment Warmth",
+        paperStyle: "cream_linen",
+        primaryFont: "Newsreader",
+        suggestedMood: mood || "reflective",
+        accentColor: "#d97706",
+        designRationale: "A gentle cream stationery canvas designed to let your honest thoughts breathe and unfold.",
+        stickers: ["🌿", "✨", "☕"],
+        washiTapeBg: "bg-amber-300/80 border-amber-400",
+      };
+    }
+
+    res.json(parsed);
+  } catch (error: any) {
+    console.error("Error in /api/gemini/suggest-design:", error?.message || error);
+    // Graceful fallback response
+    res.json({
+      templateId: "classic_diary",
+      themeName: "Classic Diary",
+      paperStyle: "ruled_notebook",
+      primaryFont: "Courier Prime",
+      suggestedMood: "reflective",
+      accentColor: "#b91c1c",
+      designRationale: "A nostalgic lined diary layout for focused everyday journaling.",
+      stickers: ["📓", "☕", "⭐"],
+      washiTapeBg: "bg-amber-300/80 border-amber-400",
+    });
+  }
+});
+
 // Helper to format ICS timestamp (e.g. 20260915T140000Z or 20260915)
 function formatIcsDateTime(dateStr: string, timeStr?: string): string {
   const cleanDate = dateStr.replace(/-/g, "");
@@ -805,6 +902,762 @@ app.post("/api/calendar/add-events", async (req, res) => {
     });
   }
 });
+
+// -------------------------------------------------------------------
+// Smart Completion & Reminder Assistant: Extract Action Items Endpoint
+// -------------------------------------------------------------------
+app.post("/api/gemini/extract-action-items", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const {
+      journalText = "",
+      entryDate = new Date().toISOString().slice(0, 10),
+      referenceDate = new Date().toISOString().slice(0, 10),
+      existingTitles = [],
+    } = body;
+
+    const trimmedText = String(journalText).trim();
+    if (!trimmedText) {
+      return res.json({
+        detectedItems: [],
+        rationale: "No journal text provided for analysis.",
+      });
+    }
+
+    const existingTitlesLower = (Array.isArray(existingTitles) ? existingTitles : []).map(
+      (t: string) => String(t).toLowerCase().trim()
+    );
+
+    // Heuristic Fallback Extractor (runs if API key is not present or if LLM encounters an unexpected issue)
+    const runHeuristicExtractor = () => {
+      const items: any[] = [];
+      const sentences = trimmedText.split(/(?<=[.!?\n])\s+/);
+
+      // Refined pattern indicators for unfinished commitments
+      const taskIndicators = [
+        /(?:need to|have to|must|should|ought to|plan to|aim to|intend to|promised to)\s+([^,.;!?]+)/i,
+        /(?:still need to|still have to|yet to)\s+([^,.;!?]+)/i,
+        /(?:submit|submission of|turn in|apply for|send over)\s+([^,.;!?]+)/i,
+        /(?:prepare|finish|complete|finalize|schedule|call|email|review|draft)\s+([^,.;!?]+)/i,
+        /(?:meeting with|appointment with|doctor appointment|dentist appointment|sync with)\s+([^,.;!?]+)/i,
+      ];
+
+      sentences.forEach((sentence, idx) => {
+        const lower = sentence.toLowerCase();
+
+        // Past event exclusion (e.g., "went to", "finished yesterday", "visited")
+        const isPastTense = /\b(?:yesterday|last week|last month|ago|already finished|already completed|went to|visited|attended)\b/i.test(
+          sentence
+        );
+        if (isPastTense && !/\b(?:still need|have to|must|will|tomorrow|next week)\b/i.test(sentence)) {
+          return;
+        }
+
+        // Relative date indicators
+        let detectedDate: string | null = null;
+        let relativeText: string | null = null;
+        let isAmbiguous = false;
+        let clarification: string | null = null;
+        let detectedTime: string | null = null;
+
+        // Time match (e.g. 10 AM, 2:30 PM, 14:00)
+        const timeMatch = sentence.match(/\b([0-1]?[0-9]|2[0-3]):?([0-5][0-9])?\s*(am|pm)?\b/i);
+        if (timeMatch && (timeMatch[3] || timeMatch[0].includes(":"))) {
+          let hours = parseInt(timeMatch[1], 10);
+          const mins = timeMatch[2] ? timeMatch[2] : "00";
+          const meridiem = timeMatch[3]?.toLowerCase();
+          if (meridiem === "pm" && hours < 12) hours += 12;
+          if (meridiem === "am" && hours === 12) hours = 0;
+          detectedTime = `${hours.toString().padStart(2, "0")}:${mins}`;
+        }
+
+        // Relative date matching against referenceDate
+        const refD = new Date(referenceDate);
+        if (/\btomorrow\b/i.test(sentence)) {
+          relativeText = "tomorrow";
+          const nextDay = new Date(refD);
+          nextDay.setDate(refD.getDate() + 1);
+          detectedDate = nextDay.toISOString().slice(0, 10);
+        } else if (/\bmonday\b/i.test(sentence)) {
+          relativeText = "Monday";
+          const dayOffset = (1 + 7 - refD.getDay()) % 7 || 7;
+          const target = new Date(refD);
+          target.setDate(refD.getDate() + dayOffset);
+          detectedDate = target.toISOString().slice(0, 10);
+        } else if (/\bfriday\b/i.test(sentence)) {
+          relativeText = "Friday";
+          const dayOffset = (5 + 7 - refD.getDay()) % 7 || 7;
+          const target = new Date(refD);
+          target.setDate(refD.getDate() + dayOffset);
+          detectedDate = target.toISOString().slice(0, 10);
+        } else if (/\bthis week\b/i.test(sentence)) {
+          relativeText = "this week";
+          isAmbiguous = true;
+          clarification = "When this week would you like to finish this?";
+        }
+
+        for (const pattern of taskIndicators) {
+          const match = sentence.match(pattern);
+          if (match && match[1]) {
+            let actionPhrase = match[0].trim();
+            // Capitalize first letter
+            actionPhrase = actionPhrase.charAt(0).toUpperCase() + actionPhrase.slice(1);
+            if (actionPhrase.length > 70) {
+              actionPhrase = actionPhrase.slice(0, 70) + "...";
+            }
+
+            // Check if title is duplicate
+            const isDup = existingTitlesLower.some((t: string) =>
+              t.includes(actionPhrase.toLowerCase()) || actionPhrase.toLowerCase().includes(t)
+            );
+
+            // Determine suggested type
+            let suggestedType: "reminder" | "calendar" | "objective" = "reminder";
+            if (detectedTime || /\b(meeting|appointment|sync|exam)\b/i.test(sentence)) {
+              suggestedType = "calendar";
+            } else if (/\b(project|goal|finish report|presentation|assignment|thesis)\b/i.test(sentence)) {
+              suggestedType = "objective";
+            }
+
+            items.push({
+              id: `action_${Date.now()}_${idx}`,
+              title: actionPhrase,
+              category: suggestedType === "calendar" ? "meeting" : suggestedType === "objective" ? "goal" : "task",
+              date: detectedDate,
+              time: detectedTime,
+              relativeDateText: relativeText,
+              isAmbiguousDate: isAmbiguous,
+              clarificationPrompt: clarification,
+              suggestedType,
+              suggestedReminder: detectedDate ? `Reminder: ${actionPhrase} on ${detectedDate}` : undefined,
+              confidenceReason: `Found action commitment in sentence: "${sentence.slice(0, 60)}..."`,
+              priority: /\b(urgently|asap|crucial|priority)\b/i.test(sentence) ? "high" : "medium",
+              isDuplicate: isDup,
+            });
+            break;
+          }
+        }
+      });
+
+      return items;
+    };
+
+    if (!process.env.GEMINI_API_KEY) {
+      const heuristicResults = runHeuristicExtractor();
+      return res.json({
+        detectedItems: heuristicResults,
+        rationale: heuristicResults.length
+          ? `Detected ${heuristicResults.length} actionable item(s) from your reflection thoughts.`
+          : "No unfinished commitments found in this entry.",
+      });
+    }
+
+    const prompt = `You are a high-precision, empathetic Smart Completion & Reminder Assistant for personal journaling.
+Analyze this single completed journal entry to detect actionable items, unfinished tasks, commitments, upcoming deadlines, appointments, and personal objectives.
+
+CURRENT REFERENCE DATE: "${referenceDate}"
+ENTRY DATE: "${entryDate}"
+EXISTING TASK/OBJECTIVE TITLES TO AVOID DUPLICATES:
+${JSON.stringify(existingTitles)}
+
+USER'S JOURNAL ENTRY:
+"""
+${trimmedText}
+"""
+
+CRITICAL INSTRUCTIONS:
+1. DETECT UNFINISHED ITEMS:
+   - Tasks that still need to be completed
+   - Things the user said they need to do later
+   - Commitments or promises made to self or others
+   - Upcoming deadlines
+   - Meetings, syncs, or appointments
+   - Events mentioned in the entry
+   - Follow-ups that should happen
+   - Personal goals or objectives
+   - Submissions, applications, assignments, projects, or documents to submit
+   - Any clearly unfinished activity
+
+2. STRICTLY AVOID FALSE POSITIVES:
+   - DO NOT mark past accomplishments as unfinished tasks. (e.g. "I went to the library yesterday" -> DO NOT extract; "I need to return the library book next Friday" -> EXTRACT).
+   - DO NOT convert general philosophical musings or emotional expressions into tasks.
+
+3. INTELLIGENT REMINDER & CATEGORIZATION:
+   - "suggestedType":
+     * "calendar": If it has a specific time or is an event, meeting, appointment, doctor visit, or scheduled session.
+     * "reminder": If it is a deadline, submission, phone call, or task tied to a specific day.
+     * "objective": If it represents a broader project, multiday assignment, or personal milestone (e.g., "prepare presentation for Monday", "finish final report").
+   - Calculate exact "YYYY-MM-DD" based on Reference Date "${referenceDate}".
+     * "tomorrow" -> calculate next calendar day
+     * "Monday" / "next Monday" -> calculate exact date
+     * "Friday at 10 AM" -> calculate exact date and time "10:00"
+   - AMBIGUOUS DATES:
+     * If an item has an uncertain deadline (e.g., "need to finish presentation" without stating when), set "isAmbiguousDate": true, "date": null, and provide a gentle conversational "clarificationPrompt" such as "When would you like to complete this?"
+     * Do NOT ask questions if the date/time is already clearly stated.
+
+4. DUPLICATE CHECK:
+   - If a detected task is essentially identical to one of the existing titles provided, mark "isDuplicate": true.
+
+Respond strictly in valid JSON matching this schema:
+{
+  "detectedItems": [
+    {
+      "title": "Short, clear task title (e.g. 'Submit project report', 'Prepare presentation')",
+      "category": "task | deadline | commitment | meeting | appointment | event | goal | submission | follow_up",
+      "date": "YYYY-MM-DD or null",
+      "time": "HH:mm or null",
+      "relativeDateText": "e.g. 'tomorrow', 'Monday', or null",
+      "isAmbiguousDate": false,
+      "clarificationPrompt": "Contextual question if ambiguous, or null",
+      "suggestedType": "reminder | calendar | objective",
+      "suggestedReminder": "e.g. 'Reminder: Submit project report — Tomorrow'",
+      "confidenceReason": "Short quote or phrase from journal demonstrating user's intention",
+      "priority": "low | medium | high",
+      "isDuplicate": false
+    }
+  ],
+  "rationale": "A warm, concise 1-sentence note summarizing the assistant's observations."
+}`;
+
+    const systemInstruction =
+      "You are a precise JSON-only journal action item extractor. Output valid raw JSON only, without markdown code fences or conversational text.";
+
+    const result = await generateContentWithFallback(prompt, systemInstruction);
+    let parsed: any = {};
+    try {
+      let cleanJson = result.text.trim();
+      if (cleanJson.startsWith("```json")) {
+        cleanJson = cleanJson.replace(/^```json/, "").replace(/```$/, "").trim();
+      } else if (cleanJson.startsWith("```")) {
+        cleanJson = cleanJson.replace(/^```/, "").replace(/```$/, "").trim();
+      }
+      parsed = JSON.parse(cleanJson);
+    } catch {
+      parsed = {
+        detectedItems: runHeuristicExtractor(),
+        rationale: "Extracted actionable items using contextual journal parsing.",
+      };
+    }
+
+    const detected = Array.isArray(parsed.detectedItems) ? parsed.detectedItems : [];
+    // Ensure every item has a unique id
+    const finalItems = detected.map((item: any, idx: number) => ({
+      id: item.id || `action_${Date.now()}_${idx}`,
+      title: item.title || "Action Item",
+      category: item.category || "task",
+      date: item.date || null,
+      time: item.time || null,
+      relativeDateText: item.relativeDateText || null,
+      isAmbiguousDate: Boolean(item.isAmbiguousDate),
+      clarificationPrompt: item.clarificationPrompt || null,
+      suggestedType: item.suggestedType || "reminder",
+      suggestedReminder: item.suggestedReminder || null,
+      confidenceReason: item.confidenceReason || null,
+      priority: item.priority || "medium",
+      isDuplicate: Boolean(item.isDuplicate),
+    }));
+
+    res.json({
+      detectedItems: finalItems,
+      rationale: parsed.rationale || (finalItems.length ? "Identified actionable items to help you follow through." : "No unfinished commitments detected."),
+      modelUsed: result.modelUsed,
+    });
+  } catch (error: any) {
+    console.error("Error in /api/gemini/extract-action-items:", error);
+    res.status(500).json({
+      error: error?.message || "Failed to extract action items from reflection.",
+    });
+  }
+});
+
+// ----------------------------------------------------------------------
+// 1. AI SCRAPBOOK GENERATION ENDPOINT
+// ----------------------------------------------------------------------
+app.post("/api/gemini/generate-scrapbook", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { reflection, preferredTemplate } = body;
+
+    if (!reflection || !reflection.id) {
+      return res.status(400).json({ error: "reflection object is required" });
+    }
+
+    const messagesText = Array.isArray(reflection.messages)
+      ? reflection.messages.map((m: any) => `${m.role}: ${m.content}`).join("\n")
+      : "";
+    const fullText = [reflection.title || "", reflection.summary || "", messagesText].join("\n\n");
+
+    const prompt = `You are a creative scrapbook curator and memory designer. Analyze this journal entry:
+
+Date: ${reflection.date || "Unknown"}
+Title: ${reflection.title || "Reflection"}
+Mood: ${reflection.mood || "reflective"}
+Content:
+"""
+${fullText.slice(0, 4000)}
+"""
+
+Extract structured memory details and suggest visual scrapbook design elements.
+Return STRICT JSON matching this schema:
+{
+  "mainEvent": "Brief phrase describing primary event or theme",
+  "location": "City, place, or venue mentioned if any, or null",
+  "peopleMentioned": ["Names of people mentioned"],
+  "importantMoments": ["1-3 key memorable moments"],
+  "mood": "dominant emotional tone",
+  "keyQuotes": ["1-2 impactful quotes or sentences from the entry"],
+  "activities": ["Activities or actions taken"],
+  "highlights": ["1-3 highlights"],
+  "whatILearned": "Key lesson or insight learned, or null",
+  "progressPercent": 100, // estimated 0-100 progress if project/goal related
+  "favoriteMoment": "Single standout favorite moment sentence",
+  "recommendedTemplate": "travel" | "achievement" | "personal" | "celebration" | "classic" | "photo_story" | "idea_board" | "project_diary",
+  "designRationale": "1-2 sentences on why this aesthetic fits the memory",
+  "stickers": ["3-5 recommended emoji stickers e.g. ✈️, ⭐, 🌿, ☕, 🏆"],
+  "accentColor": "#hexColor"
+}`;
+
+    const contents = [{ role: "user", parts: [{ text: prompt }] }];
+    const result = await generateContentWithFallback(
+      contents,
+      "You are an expert visual memory designer. Respond ONLY with a valid JSON object. No Markdown formatting around the JSON."
+    );
+
+    let parsed: any = {};
+    try {
+      const cleaned = result.text.replace(/```json\s*|```/g, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch (parseErr) {
+      console.warn("Failed to parse scrapbook AI output as JSON, using heuristics:", parseErr);
+    }
+
+    const templateId = preferredTemplate || parsed.recommendedTemplate || "classic";
+    const metadata = {
+      mainEvent: parsed.mainEvent || reflection.title || "Cherished Journal Memory",
+      date: reflection.date || new Date().toISOString().split("T")[0],
+      location: parsed.location || undefined,
+      peopleMentioned: parsed.peopleMentioned || [],
+      importantMoments: parsed.importantMoments || [],
+      mood: parsed.mood || reflection.mood || "reflective",
+      keyQuotes: parsed.keyQuotes || [reflection.title || "A day to remember."],
+      activities: parsed.activities || [],
+      highlights: parsed.highlights || [],
+      whatILearned: parsed.whatILearned || undefined,
+      progressPercent: parsed.progressPercent || 100,
+      favoriteMoment: parsed.favoriteMoment || parsed.keyQuotes?.[0] || "A quiet meaningful moment.",
+    };
+
+    // Build visual elements based on the template
+    const elements: any[] = [];
+    let z = 1;
+
+    // Header title
+    elements.push({
+      id: "elem_title",
+      type: "text",
+      x: 48,
+      y: 48,
+      width: 680,
+      height: 56,
+      rotation: 0,
+      zIndex: z++,
+      content: reflection.title || metadata.mainEvent,
+      style: {
+        fontFamily: "Playfair Display",
+        fontSize: 32,
+        fontWeight: "bold",
+        color: "#1c1917",
+      },
+    });
+
+    // Date & Location badge
+    if (metadata.location) {
+      elements.push({
+        id: "elem_loc_badge",
+        type: "badge",
+        x: 48,
+        y: 112,
+        width: 220,
+        height: 38,
+        rotation: -1,
+        zIndex: z++,
+        content: `📍 ${metadata.location}`,
+        stampVariant: "badge",
+        stampColor: "#059669",
+        style: {
+          fontFamily: "Plus Jakarta Sans",
+          fontSize: 13,
+          fontWeight: "bold",
+          color: "#065f46",
+          backgroundColor: "#ecfdf5",
+          borderColor: "#a7f3d0",
+          borderWidth: 1,
+          borderRadius: 20,
+        },
+      });
+    }
+
+    elements.push({
+      id: "elem_date_stamp",
+      type: "text",
+      x: metadata.location ? 280 : 48,
+      y: 114,
+      width: 180,
+      height: 34,
+      rotation: 0,
+      zIndex: z++,
+      content: `📅 ${metadata.date}`,
+      style: {
+        fontFamily: "Courier Prime",
+        fontSize: 13,
+        color: "#78716c",
+      },
+    });
+
+    // Default primary photo placeholder
+    const samplePhotos = [
+      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
+      "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=800&q=80",
+      "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80",
+    ];
+
+    elements.push({
+      id: "elem_hero_photo",
+      type: "image",
+      x: 48,
+      y: 165,
+      width: 340,
+      height: 280,
+      rotation: -2,
+      zIndex: z++,
+      imageUrl: samplePhotos[templateId === "achievement" ? 2 : templateId === "travel" ? 1 : 0],
+      caption: metadata.location ? `Memories in ${metadata.location}` : "Cherished snapshot",
+      photoStyle: "polaroid",
+    });
+
+    // Washi tape on hero photo
+    elements.push({
+      id: "elem_tape_1",
+      type: "tape",
+      x: 160,
+      y: 155,
+      width: 120,
+      height: 26,
+      rotation: 2,
+      zIndex: z++,
+      tapeColor: "rgba(254, 243, 199, 0.85)",
+    });
+
+    // Story narrative card
+    const storySnippet = fullText.slice(0, 380) || "A tranquil chapter in my personal journey.";
+    elements.push({
+      id: "elem_story_card",
+      type: "quote_card",
+      x: 415,
+      y: 165,
+      width: 350,
+      height: 190,
+      rotation: 1,
+      zIndex: z++,
+      content: storySnippet,
+      cardVariant: "pinned",
+      style: {
+        fontFamily: "Newsreader",
+        fontSize: 15,
+        color: "#292524",
+        backgroundColor: "#fffbeb",
+        borderColor: "#fde68a",
+        borderWidth: 1,
+        borderRadius: 12,
+      },
+    });
+
+    // Highlight or quote callout
+    if (metadata.keyQuotes && metadata.keyQuotes[0]) {
+      elements.push({
+        id: "elem_quote_highlight",
+        type: "quote_card",
+        x: 415,
+        y: 375,
+        width: 350,
+        height: 95,
+        rotation: -1,
+        zIndex: z++,
+        content: `"${metadata.keyQuotes[0]}"`,
+        cardVariant: "highlight",
+        style: {
+          fontFamily: "Newsreader",
+          fontStyle: "italic",
+          fontSize: 15,
+          color: "#78350f",
+          backgroundColor: "#fef3c7",
+          borderColor: "#fde68a",
+          borderWidth: 1,
+          borderRadius: 10,
+        },
+      });
+    }
+
+    // Recommended stickers
+    const stickersList = Array.isArray(parsed.stickers) && parsed.stickers.length > 0 ? parsed.stickers : ["✨", "🌿", "⭐"];
+    stickersList.slice(0, 3).forEach((stk: string, idx: number) => {
+      elements.push({
+        id: `elem_stk_${idx}`,
+        type: "sticker",
+        x: 370 + idx * 130,
+        y: 490,
+        width: 44,
+        height: 44,
+        rotation: (idx % 2 === 0 ? 1 : -1) * (6 + idx * 3),
+        zIndex: z++,
+        content: stk,
+      });
+    });
+
+    const aiSuggestions = [
+      {
+        id: "sug_1",
+        type: "add_moment",
+        label: "Feature Top Moment",
+        description: "Emphasize your favorite moment with an illuminated polaroid border.",
+        applied: false,
+      },
+      {
+        id: "sug_2",
+        type: "collage",
+        label: "Mosaic Photo Grid",
+        description: "Arrange 3 companion photos in a nostalgic vintage layout.",
+        applied: false,
+      },
+      {
+        id: "sug_3",
+        type: "connect_graph",
+        label: "Connect to Life Graph",
+        description: `Link with related entities like ${metadata.peopleMentioned?.[0] || metadata.location || "Projects"}.`,
+        applied: false,
+      },
+    ];
+
+    const scrapbook = {
+      id: `scrapbook_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      userId: reflection.userId,
+      sourceReflectionId: reflection.id,
+      sourceReflectionTitle: reflection.title,
+      title: reflection.title || metadata.mainEvent,
+      date: metadata.date,
+      template: templateId,
+      memoryType: templateId === "travel" ? "travel" : templateId === "achievement" ? "achievement" : templateId === "celebration" ? "celebration" : templateId === "personal" ? "personal" : "general",
+      paperStyle: templateId === "travel" ? "kraft_paper" : templateId === "personal" ? "watercolor_blush" : "cream_linen",
+      elements,
+      metadata,
+      lifeGraphNodeIds: [],
+      aiSuggestions,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    res.json({ scrapbook, modelUsed: result.modelUsed });
+  } catch (error: any) {
+    console.error("Error in /api/gemini/generate-scrapbook:", error);
+    res.status(500).json({ error: error?.message || "Failed to generate AI scrapbook." });
+  }
+});
+
+// ----------------------------------------------------------------------
+// 2. LIFE GRAPH EXTRACTION ENDPOINT
+// ----------------------------------------------------------------------
+app.post("/api/gemini/extract-life-graph", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { reflections = [], existingEntityNames = [] } = body;
+
+    if (!Array.isArray(reflections) || reflections.length === 0) {
+      return res.status(400).json({ error: "reflections array is required" });
+    }
+
+    const prompt = `You are a knowledge graph architect specializing in personal memory systems.
+Analyze these journal entries:
+${JSON.stringify(reflections.slice(0, 15), null, 2)}
+
+Identify all significant interconnected life entities:
+- Projects (creative or technical endeavors)
+- People (friends, family, mentors, collaborators)
+- Places (cities, travel locations, workspaces)
+- Goals / Objectives (aspirations, milestones)
+- Topics / Hobbies (themes, writing, sports)
+- Events / Achievements
+
+Known existing entities: ${JSON.stringify(existingEntityNames)}
+
+Return STRICT JSON matching this schema:
+{
+  "entities": [
+    {
+      "name": "Unique Name",
+      "type": "project" | "person" | "place" | "goal" | "objective" | "event" | "topic" | "hobby" | "idea" | "achievement",
+      "description": "Concise summary of their role or essence in the user's life",
+      "firstMentionedDate": "YYYY-MM-DD",
+      "lastMentionedDate": "YYYY-MM-DD",
+      "reflectionIds": ["matching reflection IDs"],
+      "evolutionTimeline": [
+        {
+          "date": "YYYY-MM-DD",
+          "monthLabel": "e.g. Mar 2026",
+          "stage": "e.g. Conception | First Prototype | Collaborative Launch",
+          "note": "What happened at this stage",
+          "reflectionId": "matching ID"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "sourceEntityName": "Entity A",
+      "targetEntityName": "Entity B",
+      "label": "e.g. collaborates on | visited in | sub-goal of | inspired by",
+      "strength": 1 to 5,
+      "reflectionIds": ["reflection IDs supporting connection"]
+    }
+  ]
+}`;
+
+    const contents = [{ role: "user", parts: [{ text: prompt }] }];
+    const result = await generateContentWithFallback(
+      contents,
+      "Respond ONLY with a valid JSON object matching the requested schema. No Markdown wrappers."
+    );
+
+    let parsed: any = { entities: [], relationships: [] };
+    try {
+      const cleaned = result.text.replace(/```json\s*|```/g, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch (parseErr) {
+      console.warn("Failed to parse life graph JSON from AI:", parseErr);
+    }
+
+    // Map entity names to IDs for relationships
+    const entities = (parsed.entities || []).map((e: any, idx: number) => ({
+      id: `node_${Date.now()}_${idx}`,
+      userId: reflections[0]?.userId || "user",
+      name: e.name,
+      type: e.type || "topic",
+      description: e.description || "",
+      firstMentionedDate: e.firstMentionedDate || reflections[0]?.date || new Date().toISOString().split("T")[0],
+      lastMentionedDate: e.lastMentionedDate || reflections[0]?.date || new Date().toISOString().split("T")[0],
+      reflectionIds: e.reflectionIds || [],
+      evolutionTimeline: e.evolutionTimeline || [],
+      stats: { entryCount: (e.reflectionIds || []).length || 1 },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const nameToId = new Map<string, string>();
+    entities.forEach((ent: any) => nameToId.set(ent.name.toLowerCase().trim(), ent.id));
+
+    const relationships = (parsed.relationships || [])
+      .map((rel: any, idx: number) => {
+        const sourceId = nameToId.get(rel.sourceEntityName?.toLowerCase().trim());
+        const targetId = nameToId.get(rel.targetEntityName?.toLowerCase().trim());
+        if (!sourceId || !targetId || sourceId === targetId) return null;
+        return {
+          id: `rel_${Date.now()}_${idx}`,
+          userId: reflections[0]?.userId || "user",
+          sourceEntityId: sourceId,
+          targetEntityId: targetId,
+          label: rel.label || "connected with",
+          type: "inferred",
+          strength: rel.strength || 1,
+          reflectionIds: rel.reflectionIds || [],
+          createdAt: new Date().toISOString(),
+        };
+      })
+      .filter(Boolean);
+
+    res.json({ entities, relationships, modelUsed: result.modelUsed });
+  } catch (error: any) {
+    console.error("Error in /api/gemini/extract-life-graph:", error);
+    res.status(500).json({ error: error?.message || "Failed to extract Life Graph." });
+  }
+});
+
+// ----------------------------------------------------------------------
+// 3. LIFE GRAPH NATURAL LANGUAGE QUERY ENDPOINT
+// ----------------------------------------------------------------------
+app.post("/api/gemini/query-life-graph", async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const { query = "", entities = [], reflections = [] } = body;
+
+    if (!query.trim()) {
+      return res.status(400).json({ error: "query string is required" });
+    }
+
+    const prompt = `You are the user's personal Life Graph reasoning assistant.
+The user is querying their interconnected journal memory graph.
+
+User Query: "${query}"
+
+Knowledge Graph Entities:
+${JSON.stringify(entities.slice(0, 30), null, 2)}
+
+Recent Journal Reflections:
+${JSON.stringify(reflections.slice(0, 20), null, 2)}
+
+Synthesize a comprehensive, empathetic, and evidence-backed response answering the user's query.
+Identify matching entity IDs and reflection IDs as citations.
+
+Return STRICT JSON matching this schema:
+{
+  "answer": "Clear Markdown answer directly answering the question with dates and context.",
+  "matchingEntityIds": ["List of entity IDs directly relevant"],
+  "matchingReflectionIds": ["List of reflection IDs cited"],
+  "citations": [
+    {
+      "reflectionId": "id",
+      "title": "Title of entry",
+      "excerpt": "Specific sentence or detail from the entry"
+    }
+  ],
+  "suggestedNodes": ["Entity names to explore next in the graph"]
+}`;
+
+    const contents = [{ role: "user", parts: [{ text: prompt }] }];
+    const result = await generateContentWithFallback(
+      contents,
+      "Respond ONLY with a valid JSON object matching the requested schema. No Markdown wrappers."
+    );
+
+    let parsed: any = {};
+    try {
+      const cleaned = result.text.replace(/```json\s*|```/g, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch (parseErr) {
+      console.warn("Failed to parse Life Graph query JSON:", parseErr);
+      parsed = {
+        answer: result.text,
+        matchingEntityIds: [],
+        matchingReflectionIds: [],
+        citations: [],
+        suggestedNodes: [],
+      };
+    }
+
+    res.json({
+      query,
+      answer: parsed.answer || result.text,
+      matchingEntityIds: parsed.matchingEntityIds || [],
+      matchingReflectionIds: parsed.matchingReflectionIds || [],
+      citations: parsed.citations || [],
+      suggestedNodes: parsed.suggestedNodes || [],
+      modelUsed: result.modelUsed,
+    });
+  } catch (error: any) {
+    console.error("Error in /api/gemini/query-life-graph:", error);
+    res.status(500).json({ error: error?.message || "Failed to query Life Graph." });
+  }
+});
+
+
 
 // Boot server with Vite middleware in dev or static files in prod
 async function startServer() {

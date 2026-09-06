@@ -22,6 +22,9 @@ import { VoiceDictationBar } from "./VoiceDictationBar";
 import { ScrapbookCanvas } from "./ScrapbookCanvas";
 import { ScrapbookToolbar } from "./ScrapbookToolbar";
 import { EntryInsightsSection } from "./EntryInsightsSection";
+import { SmartCompletionAssistant } from "./SmartCompletionAssistant";
+import { RelatedActionsView } from "./RelatedActionsView";
+import { FutureNoteCreatorModal } from "./FutureNoteCreatorModal";
 import { 
   Sparkles, 
   Send, 
@@ -46,7 +49,8 @@ import {
   Layers,
   LayoutTemplate,
   Camera,
-  Check
+  Check,
+  Clock
 } from "lucide-react";
 
 interface JournalEditorProps {
@@ -54,9 +58,12 @@ interface JournalEditorProps {
   initialPrompt?: string | null;
   userProfile: UserProfile;
   encryptionKey: CryptoKey | null;
+  highlightSentence?: string;
   onBack: () => void;
   onSaved: (savedDoc: ReflectionDoc, updatedProfile: UserProfile, streakIncremented: boolean) => void;
   onOpenEncryptionSettings: () => void;
+  onOpenPrivacySettings?: () => void;
+  onOpenScrapbook?: (reflection: ReflectionDoc) => void;
 }
 
 export const JournalEditor: React.FC<JournalEditorProps> = ({
@@ -64,9 +71,12 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   initialPrompt,
   userProfile,
   encryptionKey,
+  highlightSentence,
   onBack,
   onSaved,
   onOpenEncryptionSettings,
+  onOpenPrivacySettings,
+  onOpenScrapbook,
 }) => {
   // Document identifiers & core metadata
   const [docId] = useState<string>(
@@ -74,6 +84,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   );
   const [savedReflectionDoc, setSavedReflectionDoc] = useState<ReflectionDoc | null>(initialDoc || null);
   const [showInsightsSection, setShowInsightsSection] = useState<boolean>(Boolean(initialDoc));
+  const [isFutureModalOpen, setIsFutureModalOpen] = useState(false);
   const [title, setTitle] = useState<string>(initialDoc?.title || "");
   const [selectedMood, setSelectedMood] = useState<MoodType>(initialDoc?.mood || "reflective");
   const [selectedTags, setSelectedTags] = useState<string[]>(initialDoc?.tags || ["Personal Growth"]);
@@ -511,6 +522,27 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
     }
   };
 
+  const handleVoiceTranscript = (transcript: string) => {
+    console.log("[VOICE] Parent transcript handler invoked");
+    console.log("[VOICE] Journal state update requested");
+    console.log("[VOICE] Journal editor update requested");
+    setInputPrompt((prev) => {
+      const existing = (prev || "").trim();
+      const spoken = (transcript || "").trim();
+
+      if (!spoken) {
+        return prev;
+      }
+
+      console.log("[VOICE] Journal state updated");
+      if (!existing) {
+        return spoken;
+      }
+
+      return `${existing}\n\n${spoken}`;
+    });
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-fade-in">
       
@@ -586,6 +618,40 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
 
         {/* Right: Security Badge & Save Button */}
         <div className="flex items-center gap-2">
+          {/* Privacy Indicator Badge */}
+          {userProfile.privacyAISettings?.aiAnalysisEnabled !== false ? (
+            <button
+              type="button"
+              onClick={onOpenPrivacySettings}
+              className="px-2.5 py-1.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold flex items-center gap-1 hover:bg-amber-100 transition-colors shadow-2xs"
+              title="AI insights enabled - Click to manage privacy"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden lg:inline">AI insights enabled</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenPrivacySettings}
+              className="px-2.5 py-1.5 rounded-xl bg-stone-100 text-stone-700 border border-stone-200 text-xs font-semibold flex items-center gap-1 hover:bg-stone-200 transition-colors shadow-2xs"
+              title="Private entry - AI analysis disabled - Click to manage privacy"
+            >
+              <Lock className="w-3.5 h-3.5 text-stone-500" />
+              <span className="hidden lg:inline">Private entry</span>
+            </button>
+          )}
+
+          {/* Leave a Note for Future Me Button */}
+          <button
+            type="button"
+            onClick={() => setIsFutureModalOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-50 text-stone-800 border border-stone-200 text-xs font-semibold shadow-2xs transition-all active:scale-95 flex items-center gap-1.5"
+            title="Leave a note for future me"
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-700" />
+            <span className="hidden sm:inline">+ Future Note</span>
+          </button>
+
           {userProfile.e2eeEnabled && (
             <button
               onClick={onOpenEncryptionSettings}
@@ -594,6 +660,19 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
             >
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span className="hidden md:inline">E2EE</span>
+            </button>
+          )}
+
+          {savedReflectionDoc && onOpenScrapbook && (
+            <button
+              id="editor-create-scrapbook-btn"
+              type="button"
+              onClick={() => onOpenScrapbook(savedReflectionDoc)}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white text-xs font-bold shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+              title="Transform this journal entry into an aesthetic visual scrapbook"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+              <span>✨ Create AI Scrapbook</span>
             </button>
           )}
 
@@ -643,21 +722,33 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
         </div>
       )}
 
-      {/* Save Success Notice Toast with Analyze Entry Prompt */}
+      {/* Save Success Notice Toast with Analyze Entry and Scrapbook Prompts */}
       {saveSuccess && (
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 to-amber-50 border border-emerald-300 text-emerald-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in shadow-xs">
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-amber-50 to-amber-100/50 border border-emerald-300 text-emerald-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in shadow-xs">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="font-semibold">✨ Journal entry saved securely! Ready to detect calendar commitments and insights?</span>
+            <span className="font-semibold">✨ Journal entry saved securely! Ready to transform it into a visual memory?</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowInsightsSection(true)}
-            className="px-3.5 py-1.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-amber-50 font-semibold flex items-center gap-1.5 self-start sm:self-auto shadow-xs"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>✨ Analyze Entry</span>
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {savedReflectionDoc && onOpenScrapbook && (
+              <button
+                type="button"
+                onClick={() => onOpenScrapbook(savedReflectionDoc)}
+                className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                <span>✨ Create AI Scrapbook</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowInsightsSection(true)}
+              className="px-3.5 py-1.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-amber-50 font-semibold flex items-center gap-1.5 shadow-xs transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>✨ Analyze Entry</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -778,6 +869,18 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
 
           {/* Conversation Feed */}
           <div className="space-y-4">
+            {highlightSentence && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-300/80 flex items-start gap-2.5 text-xs text-stone-800 animate-fade-in shadow-2xs">
+                <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-amber-950">Referenced from your unfinished item:</span>
+                  <p className="mt-1 font-serif italic text-sm text-stone-900 bg-amber-200/60 px-2 py-1 rounded-lg border border-amber-300">
+                    "{highlightSentence}"
+                  </p>
+                </div>
+              </div>
+            )}
+
             {messages.length === 0 ? (
               <div className="p-10 rounded-3xl bg-white border border-stone-200/90 text-center space-y-3 shadow-xs">
                 <Brain className="w-10 h-10 text-stone-300 mx-auto" />
@@ -830,9 +933,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
           <VoiceDictationBar
             currentText={inputPrompt}
             onTextChange={setInputPrompt}
-            onAppendText={(chunk) => {
-              setInputPrompt((prev) => (prev ? `${prev} ${chunk.trim()}` : chunk.trim()));
-            }}
+            onTranscript={handleVoiceTranscript}
             currentMood={MOODS[selectedMood].label}
           />
 
@@ -966,6 +1067,71 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
 
         </div>
       )}
+
+      {/* ============================================================= */}
+      {/* SMART COMPLETION & REMINDER ASSISTANT & RELATED ACTIONS       */}
+      {/* ============================================================= */}
+      {savedReflectionDoc && (
+        <div className="space-y-6 pt-6 border-t border-stone-200 animate-fade-in" id="post-entry-assistant-container">
+          
+          {/* 1. Related Actions from this entry (Objectives, Reminders, Calendar) */}
+          <RelatedActionsView
+            reflection={savedReflectionDoc}
+            userProfile={userProfile}
+          />
+
+          {/* 2. Note to Future Self prompt card */}
+          <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-50/80 via-stone-50 to-orange-50/40 border border-amber-200/90 flex items-center justify-between flex-wrap gap-3 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-800 shadow-2xs">
+                <Clock className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-stone-900 font-['Newsreader'] italic text-base">
+                  Leave a note for your future self?
+                </h4>
+                <p className="text-xs text-stone-500 font-['Plus_Jakarta_Sans']">
+                  Resurface a thought, reminder, or perspective from this reflection when you need it later.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsFutureModalOpen(true)}
+              className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-bold shadow-2xs transition-all active:scale-95 flex items-center gap-1.5"
+            >
+              <Clock className="w-3.5 h-3.5 text-stone-900" />
+              <span>+ Leave a note for future me</span>
+            </button>
+          </div>
+
+          {/* 3. Smart Completion & Reminder Assistant */}
+          <SmartCompletionAssistant
+            reflection={savedReflectionDoc}
+            userProfile={userProfile}
+            rawJournalText={
+              savedReflectionDoc.messages
+                ?.filter((m) => m.role === "user")
+                .map((m) => m.content)
+                .join("\n\n") || inputPrompt
+            }
+          />
+        </div>
+      )}
+
+      {/* Future Note Creator Modal */}
+      <FutureNoteCreatorModal
+        isOpen={isFutureModalOpen}
+        onClose={() => setIsFutureModalOpen(false)}
+        userProfile={userProfile}
+        sourceReflectionId={savedReflectionDoc?.id || docId}
+        sourceReflectionTitle={title || savedReflectionDoc?.title}
+        initialSentence={highlightSentence || (messages.find((m) => m.role === "user")?.content.slice(0, 140))}
+        onNoteCreated={(note) => {
+          console.log("Future note created:", note);
+        }}
+      />
 
     </div>
   );

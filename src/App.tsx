@@ -28,6 +28,10 @@ import { MoodAnalytics } from "./components/MoodAnalytics";
 import { InsightsDashboard } from "./components/InsightsDashboard";
 import { EncryptionModal } from "./components/EncryptionModal";
 import { MilestoneModal } from "./components/MilestoneModal";
+import { UnfinishedThingsDashboard } from "./components/UnfinishedThingsDashboard";
+import { PrivacySettingsModal } from "./components/PrivacySettingsModal";
+import { ScrapbookView } from "./components/ScrapbookView";
+import { LifeGraphView } from "./components/LifeGraphView";
 
 export default function App() {
   // Auth state
@@ -40,14 +44,18 @@ export default function App() {
   const [currentView, setCurrentView] = useState<AppView>("dashboard");
   const [activeEditingDoc, setActiveEditingDoc] = useState<ReflectionDoc | null>(null);
   const [preloadedPrompt, setPreloadedPrompt] = useState<string | null>(null);
+  const [highlightSentenceForEditor, setHighlightSentenceForEditor] = useState<string | undefined>(undefined);
+  const [activeScrapbookReflection, setActiveScrapbookReflection] = useState<ReflectionDoc | null>(null);
+  const [focusEntityNameForGraph, setFocusEntityNameForGraph] = useState<string | undefined>(undefined);
 
   // Data state
   const [reflections, setReflections] = useState<ReflectionDoc[]>([]);
   const [isLoadingReflections, setIsLoadingReflections] = useState(false);
 
-  // Encryption state
+  // Encryption & Privacy state
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
   const [isEncryptionModalOpen, setIsEncryptionModalOpen] = useState(false);
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
 
   // Celebration modal state
   const [unlockedMilestone, setUnlockedMilestone] = useState<StreakMilestone | null>(null);
@@ -137,6 +145,7 @@ export default function App() {
 
   // Start a new reflection
   const handleStartNewReflection = (starterPrompt?: string, mood?: MoodType) => {
+    setHighlightSentenceForEditor(undefined);
     if (starterPrompt || mood) {
       setActiveEditingDoc({
         id: `entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -166,9 +175,10 @@ export default function App() {
     setCurrentView("new_journal");
   };
 
-  // Open existing reflection in editor
-  const handleOpenReflection = (doc: ReflectionDoc) => {
+  // Open existing reflection in editor with optional sentence highlighting
+  const handleOpenReflection = (doc: ReflectionDoc, highlightSentence?: string) => {
     setActiveEditingDoc(doc);
+    setHighlightSentenceForEditor(highlightSentence);
     setCurrentView("new_journal");
   };
 
@@ -248,6 +258,7 @@ export default function App() {
         userProfile={userProfile}
         onSignOut={handleSignOut}
         onOpenEncryptionSettings={() => setIsEncryptionModalOpen(true)}
+        onOpenPrivacySettings={() => setIsPrivacyModalOpen(true)}
         isEncryptedUnlocked={Boolean(encryptionKey)}
       />
 
@@ -267,14 +278,78 @@ export default function App() {
           />
         )}
 
+        {currentView === "unfinished" && (
+          <UnfinishedThingsDashboard
+            userProfile={userProfile}
+            reflections={reflections}
+            onOpenReflection={(doc, sentence) => {
+              handleOpenReflection(doc, sentence);
+            }}
+            onNavigateBack={() => setCurrentView("dashboard")}
+          />
+        )}
+
+        {currentView === "privacy" && (
+          <div className="max-w-3xl mx-auto px-4 py-8">
+            <PrivacySettingsModal
+              isOpen={true}
+              onClose={() => setCurrentView("dashboard")}
+              userProfile={userProfile}
+              reflections={reflections}
+              onProfileUpdated={setUserProfile}
+              onDataPurged={() => {
+                setReflections([]);
+                setCurrentView("dashboard");
+              }}
+            />
+          </div>
+        )}
+
         {currentView === "new_journal" && (
           <JournalEditor
             initialDoc={activeEditingDoc}
             userProfile={userProfile}
             encryptionKey={encryptionKey}
-            onBack={() => setCurrentView("dashboard")}
+            highlightSentence={highlightSentenceForEditor}
+            onBack={() => {
+              setHighlightSentenceForEditor(undefined);
+              setCurrentView("dashboard");
+            }}
             onSaved={handleReflectionSaved}
             onOpenEncryptionSettings={() => setIsEncryptionModalOpen(true)}
+            onOpenPrivacySettings={() => setIsPrivacyModalOpen(true)}
+            onOpenScrapbook={(doc) => {
+              setActiveScrapbookReflection(doc);
+              setCurrentView("scrapbook");
+            }}
+          />
+        )}
+
+        {currentView === "scrapbook" && (
+          <ScrapbookView
+            userProfile={userProfile}
+            reflections={reflections}
+            initialReflection={activeScrapbookReflection}
+            onNavigateBack={() => setCurrentView("dashboard")}
+            onOpenReflection={handleOpenReflection}
+            onNavigateToGraph={(entityName) => {
+              setFocusEntityNameForGraph(entityName);
+              setCurrentView("lifegraph");
+            }}
+          />
+        )}
+
+        {currentView === "lifegraph" && (
+          <LifeGraphView
+            userProfile={userProfile}
+            reflections={reflections}
+            initialFocusEntityName={focusEntityNameForGraph}
+            onNavigateBack={() => setCurrentView("dashboard")}
+            onOpenReflection={handleOpenReflection}
+            onNavigateToScrapbook={(doc) => {
+              setActiveScrapbookReflection(doc);
+              setCurrentView("scrapbook");
+            }}
           />
         )}
 
@@ -308,6 +383,19 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Privacy & AI Controls Modal */}
+      <PrivacySettingsModal
+        isOpen={isPrivacyModalOpen}
+        onClose={() => setIsPrivacyModalOpen(false)}
+        userProfile={userProfile}
+        reflections={reflections}
+        onProfileUpdated={setUserProfile}
+        onDataPurged={() => {
+          setReflections([]);
+          setCurrentView("dashboard");
+        }}
+      />
 
       {/* Encryption Settings & Unlock Modal */}
       <EncryptionModal

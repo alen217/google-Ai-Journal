@@ -35,6 +35,21 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
 
+      // User AI Scrapbook documents
+      match /scrapbooks/{scrapbookId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // User Personal Life Graph Entities
+      match /lifeGraphEntities/{entityId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // User Personal Life Graph Relationships
+      match /lifeGraphRelationships/{relId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
       // User interactions subcollection
       match /interactions/{interactionId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
@@ -147,6 +162,31 @@ The following step-by-step test cases verify every feature of ReflectAI:
    - **Preview & Save**: Click *3. Paper Preview* to inspect the photorealistic finished paper page, then click *Save Entry*.
    - **Archive Inspection**: Open *Past Entries* and click any saved entry. Toggle between *📜 Paper Journal View* and *📋 Reading & Chat View* to see your visual scrapbook layout faithfully reproduced.
 2. **Expected Result**: All visual elements are freely positioned, rotated, and layered; the canvas displays authentic tactile paper textures and shadows; and saved layout positions and styles persist across sessions.
+
+### Test Case 11: AI Scrapbook Intelligent Layouts & Design Assistant
+1. **Action**: From the Scrapbook tab or after writing a reflection, click **✨ Create AI Scrapbook**.
+2. **Expected Result**: Gemini analyzes the journal context (event, date, location, people, key quotes, emotional tone) and generates a structured visual layout adhering to the theme archetype (Travel with hero photo and location badge, Milestone celebration with banner, or Daily Reflection with thoughtful quote cards). The AI suggests custom color palettes, stickers, and washi tape pairings while preserving the original journal entry untouched.
+
+### Test Case 12: Interactive Personal Life Graph & Semantic Memory Reasoning
+1. **Action**: Navigate to the **Life Graph** tab:
+   - **Visual Canvas**: Inspect the interactive SVG network graph showing people, places, goals, projects, and themes with physics-inspired node placement.
+   - **Semantic Search**: Type a natural language query in the search bar (e.g., *"How has my perspective on running evolved?"* or *"What places have I visited with friends?"*).
+   - **Node Inspector**: Click any node to open the timeline evolution card, see all linked journal memories, and view connected relationships.
+2. **Expected Result**: The query returns a synthesized answer with specific journal excerpts and highlighted nodes. Clicking linked reflections opens the original journal entry.
+
+### Test Case 13: Granular Privacy Controls & AI Behavior Transparency
+1. **Action**: Navigate to the **Privacy** tab on the Dashboard:
+   - Toggle **AI Journal Analysis** OFF.
+   - Toggle **Smart Task & Action Detection** OFF.
+   - Toggle **Personal Life Graph Auto-Extraction** OFF.
+2. **Expected Result**: Settings immediately persist to Firestore (`/users/{uid}`). When AI analysis is disabled, all automated Gemini calls are suppressed, the UI displays clear privacy indicator badges, and manual journaling/scrapbooking remains fully functional without sending data to AI endpoints.
+
+### Test Case 14: Secure Image Validation, Safe Deletion & Data Portability
+1. **Action**:
+   - **Image Upload Security**: In Scrapbook Studio or AI Scrapbook, attempt to upload a photo. The system validates MIME type, restricts file size to 5MB, and verifies headers against executable script payloads.
+   - **Permanent Deletion**: Click the trash button on a journal entry, scrapbook page, or Life Graph node. A non-blocking `DeleteConfirmationModal` opens requiring explicit confirmation, preventing accidental data loss.
+   - **Export Data**: In HistoryView, click **Export Data (.json)** or **Export Journal (.md)** to download all reflections, scrapbooks, and Life Graph nodes for complete data portability.
+2. **Expected Result**: Malicious files are safely rejected with user-friendly alerts; confirmed deletions remove records from Firestore and update client states cleanly; and exported archives contain full user data.
 
 
 
